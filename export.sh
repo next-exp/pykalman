@@ -1,6 +1,6 @@
-#export PYTHONPATH=$PYTHONPATH:$GITDIR/PyKalman
-export PYTHONPATH=$PYTHONPATH:$GITDIR/PyKalman/Base/
-export PYTHONPATH=$PYTHONPATH:$GITDIR/PyKalman/KBase/
-export PYTHONPATH=$PYTHONPATH:$GITDIR/PyKalman/Irene/
-export PYTHONPATH=$PYTHONPATH:$GITDIR/PyKalman/KLog/
-export PYTHONPATH=$PYTHONPATH:$GITDIR/PyKalman/KalmanFilter/
+#export PYTHONPATH=$PYTHONPATH:~/github/PyKalman
+export PYTHONPATH=$PYTHONPATH:~/github/PyKalman/Base/
+export PYTHONPATH=$PYTHONPATH:~/github/PyKalman/KBase/
+export PYTHONPATH=$PYTHONPATH:~/github/PyKalman/Irene/
+export PYTHONPATH=$PYTHONPATH:~/github/PyKalman/KLog/
+export PYTHONPATH=$PYTHONPATH:~/github/PyKalman/KalmanFilter/
