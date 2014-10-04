@@ -1,5 +1,4 @@
-from KFBase import KFVector 
-from KFBase import KFMatrix 
+from KFBase import KFVector, KFMatrix, KFMatrixNull, KFMatrixUnitary, Random 
 from math import *
 
 """
@@ -51,6 +50,11 @@ class KFPropagate(object):
         """
         return None,None,None
         
+    def stepsize(self,state):
+        """ returns the zrun position for the next step starting from this state
+        """
+        return None
+
 class KFNode(object):
     """ note to store a mesurements and the kalman states
     It does filter and smooth functions
@@ -61,7 +65,7 @@ class KFNode(object):
     def __init__(self,hit,hmatrix):
         """ constructor with a hit (KFData) with the measurment and the HMatrix
         """
-        self.hit = hit.copy()
+        self.hit = hit
         self.hmatrix = KFMatrix(hmatrix)
         self.zrun = hit.zrun
         self.states = {}
@@ -126,6 +130,29 @@ class KFNode(object):
         x,C = state.vec,state.cov
         xx,cc = x[i],sqrt(C[i,i])
         return xx,cc
+
+    def generate(self,state):
+        """ generate a hit from this state
+        """
+        x0 = state.vec
+        C = state.cov
+        sx = Random.cov(C)
+        x = x0+sx
+        #print ' x0 ',x0,' sx ',sx,' x ',x
+        n,m = C.M.shape
+        C0 = KFMatrixNull(n,m)
+        gstate = KFData(x,C0,self.zrun)
+        H = self.hmatrix
+        m0 = H*x
+        V = self.hit.cov
+        sm = Random.cov(V)
+        m = m0+sm
+        #print ' m0 ',m0,' sm ',sm,' m ',m
+        hit = KFData(m,V,self.zrun)
+        #print ' initial state ',state
+        #print ' generate state ',gstate
+        #print ' generate hit ',hit
+        return hit,gstate
 
     def predict(self,state):
         """ state is the propagated state to this node
@@ -215,6 +242,18 @@ class KFFilter(object):
         self.status = 'none'
         return
 
+    def generate(self,state0):
+        state = state0.copy()
+        hits = []
+        states = []
+        for node in self.nodes:
+            zrun = node.zrun
+            state,F,Q = self.propagator.propagate(state,zrun)
+            hit,state = node.generate(state)
+            hits.append(hit)
+            states.append(state.copy())
+        return hits,states
+
     def filter(self, state0):
         """ executes the Kalman Filter (go only) from using a seed state (state0)
         """
@@ -285,7 +324,7 @@ class KFFilter(object):
         """ execute the full Kalman filter + smoother from a seed state (state0)
         """
         fchi2 = self.filter(state0)
-        schi2 = self.soother()
+        schi2 = self.smoother()
         return fchi2,schi2
 
     def clear(self):

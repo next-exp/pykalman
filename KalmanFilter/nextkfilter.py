@@ -1,6 +1,7 @@
 from KFBase import KFVector 
 from KFBase import KFMatrix,KFMatrixNull,KFMatrixUnitary 
 from kfilter import KFData,KFNode,KFPropagate,KFFilter
+from nextphysdat import NEXT,MS,momentum
 from math import *
 import random
 
@@ -10,21 +11,6 @@ KalmanFilter implementation for NEXT
 Trayectory is a straight line (x,y,tx,ty,ene) and the medium is continuous
 
 """
-
-def momentum(ene, mass = 0.511):
-    """ return the momentum from a given energy 
-    """
-    p = sqrt((ene+mass)**2-mass**2)
-    return p
-
-def thetams(p, dis, mass= 0.511):
-    """ return the theta MS angle for a particle with mass, momentum (p) that travel a distance (dis)
-    """
-    ene = sqrt(mass**2+p**2)
-    beta = p/ene
-    tms = (13.6)/(p*1.*beta)*sqrt(dis*1.)*(1+0.038*log(dis*1.))
-    return tms
-    
 
 class KFLinePropagate(KFPropagate):
     """ it assumes and state (x,y,tx,ty,ene) 
@@ -42,36 +28,14 @@ class KFLinePropagate(KFPropagate):
         n = x.Length()
         Q = KFMatrixNull(n)
         if (self.radlen == 0.): return Q
-        x,y,tx,ty,ene = svec[0],svev[1],svec[2],svec[3],svec[4]
-        tx2 = tx*tx
-        ty2 = ty*ty
-        tt2 = 1.+tx2+ty2
-        ds = sqrt(tt2)*abs(dz)
-        dsig = 1.
-        if (dz<0): dsig = -1.
-        rad = ds/self.radlen
-        pp = momentum(ene)
-        tms = thetams(p,rad)
-        print ' rad, pp, thetams ',rad,pp,tms
-        norm2 = tt2*tms*tms
-        covtxtx = norm2*(1+tx2) 
-        covtyty = norm2*(1+ty2) 
-        covtxty = norm2*tx*ty
-        Q[0,0] = ds2*covtxtx/3.
-        print ' ds covtx covty covtxty norm ',ds,covtxtx,covtyty,covtxty,norm
-        Q[1,0] = ds2*covtxty/3.
-        Q[2,0] = covtxtx*ds*dsign
-        Q[3,0] = covtxty*ds*dsign
-        Q[1,1] = ds2*covtyty/3.
-        Q[2,1] = covtxty*ds*dsign
-        Q[3,2] = covtyty*ds*dsign
-        Q[2,2] = covtxtx
-        Q[2,3] = covtxty
-        Q[3,3] = covtyty
-        for i in range(n):
-            for j in range(i+1,n):
-                Q[i,j] = Q[j,i]        
-        print ' QMatrix ',Q
+        x,y,tx,ty,ene = x
+        p = momentum(ene)
+        Qms = MS.QMatrix(p,dz,tx,ty,X0=self.radlen)
+        for i in range(4):
+            for j in range(4):
+                Q[i,j] = Qms[i,j]
+        for i in range(4,n): Q[i,i]=1.e-32
+        #print ' Q ',Q
         return Q
 
     def FMatrix(self,x,dz):
@@ -107,18 +71,17 @@ class KFLinePropagate(KFPropagate):
         #print " F ",F
         #print " Q ",Q
         return pstate,F,Q
-    
-class KFNextFilter(KFFilter):
+            
+class KFLineFilter(KFFilter):
     """ a KFFilter class for NEXT
     """
 
-    def __init__(self,presure=0.,ndim=5):
+    def __init__(self,radlen=0.,ndim=5):
         """ constructor with the xenon presure
         """
         self.hmatrix = KFMatrixNull(2,5)
         self.hmatrix[0,0]=1
         self.hmatrix[1,1]=1
-        radlen = presure
         self.propagator = KFLinePropagate(radlen)
         return
 
@@ -129,50 +92,55 @@ class KFNextFilter(KFFilter):
         self.nodes = nodes
         self.status = 'hits'
         return
-        
-if __name__ == '__main__':
+     
+#---- checks -------
 
-    # Kalman Filter with a Straight Line  
-
-    nhits = 4 # number of hits
+def check_kf(radlen=1500.):
+    nhits = 4
+    
     zdis = 1. # distance z between planes
     z0 = 1. # position of the 1st plane
-    tx = 1. # tx slope
+    tx = 0. # tx slope
     ty = 0. # ty slope
+    
     xs = map(lambda i: tx*i*zdis,range(nhits)) # true xs positions
     ys = map(lambda i: ty*i*zdis,range(nhits)) # true ys positions
     zs = map(lambda i: i*zdis+z0,range(nhits)) # true zs positions
     xres = 0.01 # x resolution
     yres = 0.01 # y resolution
-    
-    xss = map(lambda x: x+random.gauss(0.,xres),xs) # measured xs positions
-    yss = map(lambda x: x+random.gauss(0.,yres),ys) # measured xs positions
-    print ' xss ',xss
-    print ' yss ',yss
-    print ' zs ',zs
 
     # H matrix 
     V = KFMatrixNull(2) 
     V[0,0]=xres*xres
     V[1,1]=yres*yres
-    print ' V ',V
 
     # hits
-    hits = map(lambda x,y,z: KFData(KFVector([x,y]),V,z),xss,yss,zs)
-    print ' hits ',hits
-    
+    hits = map(lambda x,y,z: KFData(KFVector([x,y]),V,z),xs,ys,zs)
+    print ">>> Preparation "
+    print ' empty hits ',hits
+
     # create NEXT Kalman Filter
-    kf = KFNextFilter()
+    kf = KFLineFilter(radlen)
     kf.sethits(hits)
     x = KFVector([0.,0.,0.,0.,2.5])
-    C = KFMatrixUnitary(5)
+    C = KFMatrixNull(5,5)
     state0 = KFData(x,C,0.)
-    kf.filter(state0)  # filter
-    kf.smoother()
 
-    print '>>>> Results '
+    print ">>> Generation "
+    hits,vstates = kf.generate(state0)  # generate
+    for i in range(nhits):
+        print ' state ',vstates[i].vec
+        print ' hit ',hits[i]
+    
+    print '>>>> Fit '
+    kf.sethits(hits)
+    kf.fit(state0)
     for node in kf.nodes:
         print 'NODE ',node
         print 'chi2 ',node.getchi2('smooth')
 
-    
+#--- main ---    
+   
+if __name__ == '__main__':
+
+    check_kf()

@@ -3,10 +3,8 @@ Module KFBase defines some basic objects for KF
 """
 import numpy as np
 import sys
+import random
 eps=1e-10
-
-
-
 
 class KFMatrix(object):
     """
@@ -60,6 +58,11 @@ class KFMatrix(object):
 
         return self.M[i,j]
 
+    def size(self):
+        """ returns the size of the matrix       
+        """
+        return self.M.shape()
+    
     def __add__(self, other): 
 
         """
@@ -224,7 +227,6 @@ class KFVector(object):
             sys.exit(-1)
 
 
-
     def __eq__(self,other):
         m= abs(self.M-other.M)
 
@@ -248,6 +250,11 @@ class KFVector(object):
         """ 
 
         return self.M[i,0]
+
+    def size(self):
+        """ returns the size of the matrix       
+        """
+        return self.M.shape()
 
 
     def __add__(self, other): 
@@ -677,6 +684,42 @@ def testVector():
         sys.exit(-1)
 
 
+class Random:
+    """ static random class to generate random numbers
+    """
+
+    @staticmethod
+    def cov(SS):
+        """ generates random numbers according with a symmetric matriz (S), 
+        for example cov. matrix
+        """
+        S = SS
+        if (isinstance(SS,KFMatrix)): S = SS.M
+        n,m = S.shape
+        #print ' S ',S
+        try: 
+            #det = np.linalg.det(S)
+            L = np.linalg.cholesky(S)
+        except:
+            print " Warning Random.cov ",S
+            a = KFVector(n*[0.])
+            #print ' null cov! '
+            #print ' a ',a
+            return a
+        #print ' L ',L
+        #ll = list(np.array(L).reshape(-1,))
+        ll = list(np.array(L))
+        LL = KFMatrix(ll)
+        n,m = S.shape
+        z = map(lambda i: random.gauss(0.,1), range(n))
+        #print ' z ',z
+        z = KFVector(z)
+        a = LL*z
+        #print ' L ',L
+        #print ' a ',a
+        return a
+
+
 def exampleVector():
 
     v1 = KFVector([1.,2.,3.])  #notice: 1.,2.,3.] to get floats
@@ -916,6 +959,23 @@ def exampleMatrix():
     10+m= {1} 
     """.format(m+10,10+m)
 
+def KFMatrixNull(n,m=-1):
+    """ returns a null matrix with n-rows and m-columns
+    """
+    if (m<0): m=n
+    ns = []
+    for i in range(n):
+        ni = m*[0.]
+        ns.append(ni)
+    mm = KFMatrix(ns)
+    return mm
+
+def KFMatrixUnitary(n):
+    """ returns a unitary matrix with dimension n
+    """
+    kf = KFMatrixNull(n,n)
+    for i in range(n): kf[i,i]=1.
+    return kf
 
 def testMatrix():
     v1 = KFVector([1.,2.,3.])  #notice: 1.,2.,3.] to get floats
