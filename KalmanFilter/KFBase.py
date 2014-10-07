@@ -389,6 +389,11 @@ class KFVector(object):
     def Norm(self):
         return np.linalg.norm(self.M)
 
+    def Unit(self):
+        nn = self.Mod()
+        self.M = self.M*(1./nn)
+        return 
+
     def Sum(self):
         return np.sum(self.M)
 

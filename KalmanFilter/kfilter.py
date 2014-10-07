@@ -1,6 +1,8 @@
 from KFBase import KFVector, KFMatrix, KFMatrixNull, KFMatrixUnitary, Random 
 from math import *
 
+DEBUG = False
+
 """
 Generic implemantation of a Kalman Filter
 
@@ -48,13 +50,8 @@ class KFPropagate(object):
         """ virtual method, propagate an state to a new running position (zrun),
         it return the propagated state, F and Q matrices
         """
-        return None,None,None
+        return None,None,None,None
         
-    def stepsize(self,state):
-        """ returns the zrun position for the next step starting from this state
-        """
-        return None
-
 class KFNode(object):
     """ note to store a mesurements and the kalman states
     It does filter and smooth functions
@@ -128,7 +125,9 @@ class KFNode(object):
         """
         state = self.getstate(name)
         x,C = state.vec,state.cov
-        xx,cc = x[i],sqrt(C[i,i])
+        cc = C[i,i]
+        if (cc>0.): cc=sqrt(cc)
+        xx,cc = x[i],cc
         return xx,cc
 
     def generate(self,state):
@@ -150,8 +149,9 @@ class KFNode(object):
         #print ' m0 ',m0,' sm ',sm,' m ',m
         hit = KFData(m,V,self.zrun)
         #print ' initial state ',state
-        #print ' generate state ',gstate
-        #print ' generate hit ',hit
+        if (DEBUG):
+            print 'KFNode.generate state ',gstate
+            print 'KFNode.generate hit ',hit
         return hit,gstate
 
     def predict(self,state):
@@ -187,8 +187,9 @@ class KFNode(object):
         #print ' mres ',mres,' xres ',xres
         chi2 = mrest*Vi*mres+xrest*Ci*xres
         chi2 = chi2[0]
-        #print ' filtered state ',fstate
-        #print ' chi2 ',chi2
+        if (DEBUG):
+            print 'KFNode.predict  state ',fstate
+            print 'KFNode.predict  chi2 ',chi2
         return fstate,chi2
         
     def smooth(self,node1):
@@ -222,8 +223,9 @@ class KFNode(object):
         Ri = R.Inverse()
         chi2 = rest*(Ri*res)
         chi2 = chi2[0]
-        #print " smooth state ",sstate
-        #print " smooth chi2 ",chi2
+        if (DEBUG):
+            print "KFNode.smooth state ",sstate
+            print "KFNode.smooth chi2 ",chi2
         return sstate,chi2
         
 
@@ -248,20 +250,30 @@ class KFFilter(object):
         states = []
         for node in self.nodes:
             zrun = node.zrun
-            state,F,Q = self.propagator.propagate(state,zrun)
+            ok,state,F,Q = self.propagator.propagate(state,zrun)
+            if (not ok): 
+                print "Warning! end generation due to propagation at ",zrun
+                return hits,states
             hit,state = node.generate(state)
             hits.append(hit)
             states.append(state.copy())
+        if (DEBUG):
+            print 'KFFilter.generate hits ',hits
+            print 'KFFilter.generate states ',states
         return hits,states
 
     def filter(self, state0):
         """ executes the Kalman Filter (go only) from using a seed state (state0)
         """
+        ok = True
         state = state0.copy()
         tchi2 = 0
         for node in self.nodes:
             zrun = node.zrun
-            state,F,Q = self.propagator.propagate(state,zrun)
+            ok,state,F,Q = self.propagator.propagate(state,zrun)
+            if (not ok):
+                print "Warning! not possible to filter at ",zrun
+                return ok,tchi2
             node.F = F
             node.Q = Q
             node.setstate('pred',state)
@@ -271,13 +283,15 @@ class KFFilter(object):
             tchi2+=fchi2
             state = fstate.copy()
         self.status='filter'
-        #print " total chi2 ",tchi2
-        return tchi2
+        if (DEBUG):
+            print "KFFilter.filter chi2 ",tchi2
+        return ok,tchi2
 
     def rfilter(self,state0):
         """ executes the Kalman Filter (go only) in reverse mode 
         using a seed state (state0)
         """
+        ok = True
         state = state0.copy()
         tchi2 = 0
         ks = range(len(self.nodes))
@@ -285,7 +299,10 @@ class KFFilter(object):
         for k in ks:
             node = self.nodes[k]
             zrun = node.zrun
-            state,F,Q = self.propagator.propagate(state,zrun)
+            ok, state,F,Q = self.propagator.propagate(state,zrun)
+            if (not ok):
+                print "Warning! not possible to rfilter ",run
+                return ok,tchi2
             node.Fr = F
             node.Qr = Q
             node.setstate('rpred',state)
@@ -294,21 +311,23 @@ class KFFilter(object):
             node.setchi2('rfilter',fchi2)
             tchi2+=fchi2
         self.status='rfilter'
-        #print " total chi2 ",tchi2
-        return tchi2
+        if (DEBUG):
+            print "KFFilter.rfilter chi2 ",tchi2
+        return ok,tchi2
 
     def smoother(self):
         """ executes the Kalman Smother (back) after the filter is applied
         """
+        ok = True
+        tchi2 = 0.
         if (self.status != 'filter'):
-            print 'Status is not Filter '
-            return
+            print 'Warning! not possible to smooth as it is not filter!'
+            return False,tchi2
         fstate = self.nodes[-1].getstate('filter')
         self.nodes[-1].setstate('smooth',fstate.copy())
         self.nodes[-1].setchi2('smooth',self.nodes[-1].getchi2('filter'))
         ks = range(0,len(self.nodes)-1)
         ks.reverse()
-        tchi2 = 0.
         for k in ks:
             node = self.nodes[k]
             node1 = self.nodes[k+1]
@@ -317,15 +336,18 @@ class KFFilter(object):
             node.setchi2('smooth',schi2)
             tchi2+=schi2
         self.status='smooth'
-        #print " total chi2 ",tchi2
-        return tchi2
+        if (DEBUG):
+            print "KFFilter.smoother chi2 ",tchi2
+        return ok,tchi2
 
     def fit(self,state0):
         """ execute the full Kalman filter + smoother from a seed state (state0)
         """
-        fchi2 = self.filter(state0)
+        fchi2,schi2=0,0
+        ok,fchi2 = self.filter(state0)
+        if (not ok): return ok,fchi2,schi2
         schi2 = self.smoother()
-        return fchi2,schi2
+        return ok,fchi2,schi2
 
     def clear(self):
         """ clears the nodes
