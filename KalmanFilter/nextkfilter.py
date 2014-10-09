@@ -71,7 +71,7 @@ class KFLinePropagate(KFPropagate):
         #print ' propagate at ',zrun
         ok = self.isvalid(state,zrun)
         if (not ok): 
-            print "Warning! not valid propagate at ",zrun," the state ",state
+            print "Warning! not valid propagate at ",zrun," state ",state.vec
             return ok,None,None,None
         x = KFVector(state.vec)
         C = KFMatrix(state.cov)
@@ -156,6 +156,12 @@ class KFLineFilter(KFFilter):
         self.nodes = nodes
         self.status = 'hits'
         return
+
+    #def user_filter(self,node):
+        #fstate = node.getstate('filter')
+        #tstate = node.getstate('true')
+        #fstate.vec[-1] = tstate.vec[-1]
+    #    return
      
 class KFNextGenerator:
 
@@ -170,11 +176,9 @@ class KFNextGenerator:
         return
 
     def generate(self,state0,H,V):
-        hits = []
-        states = []
-        Qs = []
+        knodes = []
         state = state0.copy()
-        Q0 = KFMatrixNull(5,5)
+        C0 = KFMatrixNull(5,5)
         zprev = state.zrun
         while (state.vec[-1]>self.deltae):
             xx = state.vec
@@ -186,8 +190,9 @@ class KFNextGenerator:
             m = m0+sm
             #print ' hit ',m
             hit = KFData(m,V,z0)
-            hits.append(hit)
-            states.append(state)
+            knode = KFNode(hit,H)
+            knode.setstate('true',state)
+            knodes.append(knode)
             xv0 = KFVector([x0,y0,z0]) 
             uz = 1.
             if (zprev>z0): uz=-1.
@@ -200,15 +205,53 @@ class KFNextGenerator:
             de,ds = self.eloss.deltax(ee0)
             #print ' de, ds ',de,ds
             p = ee0
-            Q0 = self.ms.Q0Matrix(p,ds)
             xvf,uvf = self.ms.XUrandom(p,ds,xv0,uv0)
             #print ' xf, vf ',xvf,uvf
             xf,yf,zf = xvf; uxf,uyf,uzf = uvf; txf = uxf/uzf; tyf = uyf/uzf
             xx = KFVector([xf,yf,txf,tyf,ee0-de])
             #print ' >> xx ',xx,' z >> ',zf
-            state = KFData(xx,Q0,zf)
+            state = KFData(xx,C0,zf)
             #print ' state ',state
-        return hits,states
+        return knodes
+
+class KFNextLenghtGenerator:
+
+    def __init__(self,deltae=0.05):
+        self.mass = 0.511 
+        self.deltae = deltae
+        self.next = NEXT()
+        self.ms = MS(self.next.X0)
+        self.eloss = ELoss(self.next.rho)
+        # self.propagator = KFLinePropagator(radlen=self.X0)
+        self.propagator = KFNextPropagate()
+        return
+
+    def generate(self,state0,H,V):
+        knodes = []
+        state = state0.copy()
+        C0 = KFMatrixNull(5,5)
+        zprev = state.zrun
+        while (state.vec[-1]>self.deltae):
+            # store states
+            xx = state.vec
+            x0,y0,z0,tx0,ty0,ee0 = xx
+            z0 = state.zrun
+            m0 = H*xx
+            sm = Random.cov(V)
+            m = m0+sm
+            hit = KFData(m,V,z0)
+            knode = KFNode(hit,H)
+            knode.setstate('true',state)
+            knodes.append(knode)
+            # generate new state
+            de,ds = self.eloss.deltax(ee0)
+            icost = sqrt(1+tx*tx+ty*ty)
+            dz = ds/icost
+            ok,state,F,Q = self.propagator(state,dz)
+            if (not ok): break
+        if (DEBUG):
+            print 'KFNextLengthGenerator.propagate ',knodes
+        return knodes
 
 #---- checks -------
 

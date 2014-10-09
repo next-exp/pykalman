@@ -57,7 +57,7 @@ class KFNode(object):
     It does filter and smooth functions
     """
 
-    names = ['none','pred','filter','smooth','rpred','rfilter']
+    names = ['none','true','pred','filter','smooth','rpred','rfilter']
     
     def __init__(self,hit,hmatrix):
         """ constructor with a hit (KFData) with the measurment and the HMatrix
@@ -149,10 +149,11 @@ class KFNode(object):
         #print ' m0 ',m0,' sm ',sm,' m ',m
         hit = KFData(m,V,self.zrun)
         #print ' initial state ',state
+        knode = KFNode(hit,self.hmatrix)
+        knode.setstate('true',gstate)
         if (DEBUG):
-            print 'KFNode.generate state ',gstate
-            print 'KFNode.generate hit ',hit
-        return hit,gstate
+            print 'KFNode.generate node ',knode
+        return knode
 
     def predict(self,state):
         """ state is the propagated state to this node
@@ -244,23 +245,33 @@ class KFFilter(object):
         self.status = 'none'
         return
 
+    def chi2(self,name):
+        chi = map(lambda node: node.getchi2(name),self.nodes)
+        chi = sum(chi)
+        if (DEBUG): print "kfilter.chi2 ",name,chi
+        return chi
+
+    def __len__(self): 
+        return len(self.nodes)
+
     def generate(self,state0):
         state = state0.copy()
-        hits = []
-        states = []
+        knodes = []
         for node in self.nodes:
             zrun = node.zrun
             ok,state,F,Q = self.propagator.propagate(state,zrun)
             if (not ok): 
                 print "Warning! end generation due to propagation at ",zrun
-                return hits,states
-            hit,state = node.generate(state)
-            hits.append(hit)
-            states.append(state.copy())
+                return knodes
+            knode = node.generate(state)
+            knodes.append(knode)
+            state = knode.getstate('true').copy()
         if (DEBUG):
-            print 'KFFilter.generate hits ',hits
-            print 'KFFilter.generate states ',states
-        return hits,states
+            print 'KFFilter.generate nodes ',knodes
+        return knodes
+
+    def user_filter(self,node):
+        return
 
     def filter(self, state0):
         """ executes the Kalman Filter (go only) from using a seed state (state0)
@@ -281,7 +292,8 @@ class KFFilter(object):
             node.setstate('filter',fstate)
             node.setchi2('filter',fchi2)
             tchi2+=fchi2
-            state = fstate.copy()
+            self.user_filter(node)
+            state = node.getstate('filter').copy()
         self.status='filter'
         if (DEBUG):
             print "KFFilter.filter chi2 ",tchi2
@@ -346,7 +358,7 @@ class KFFilter(object):
         fchi2,schi2=0,0
         ok,fchi2 = self.filter(state0)
         if (not ok): return ok,fchi2,schi2
-        schi2 = self.smoother()
+        ok,schi2 = self.smoother()
         return ok,fchi2,schi2
 
     def clear(self):

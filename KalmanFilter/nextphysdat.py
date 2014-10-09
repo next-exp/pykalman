@@ -16,6 +16,46 @@ from exceptions import ZeroDivisionError
 
 DEBUG = False
 
+class Ref:
+
+    @staticmethod
+    def cost(tx,ty,uz=1.):
+        udir = uz/abs(uz)
+        ct = udir/sqrt(1.+tx*tx+ty*y)
+        return ct
+
+    @staticmethod
+    def UMatrix(udir):
+        """ returns the rotation matrix that transfrom vectors in the track ref. system to the global system
+        """
+        ux,uy,uz = udir
+        uu = sqrt(ux*ux+uy*uy+uz*uz)
+        ux = ux/uu; uy = uy/uu; uz = uz/uu
+        #print ' u ',ux,uy,uz
+        if (abs(uz)==0.): raise ZeroDivisonError
+        vx = uz; vy = 0.; vz = -ux
+        vv = sqrt(vx*vx+vy*vy+vz*vz)
+        if (abs(vv)==0.): raise ZeroDivisonError
+        vx = vx/vv; vy = vy/vv; vz=vz/vv
+        #print ' v ',vx,vy,vz
+        wx = -uy*ux/vv; wy = vv; wz = -uy*uz/vv
+        ww = sqrt(wx*wx+wy*wy+wz*wz)
+        wx = wx/ww; wy = wy/ww; wz = wz/ww        
+        #print ' w ',wx,wy,wz
+        #tx = ux/uz; ty = uy/uz
+        #if (not phi): phi = random.uniform(0.,2.*pi)
+        #txp = tan(phi)
+        #typ = (-1-txp*tx)/ty
+        #vv = sqrt(1.+txp*txp+typ*typ)
+        #vx = txp/vv; vy = typ/vv; vz = 1./vv
+        #wx = (uy*vz-uz*vy); wy = -1.*(ux*vz-uz*vx); wz = (ux*vy-uy*vx)
+        # UMatrix convert track ref system to global system
+        U = KFMatrix( [[vx,wx,ux ],[vy,wy,uy],[vz,wz,uz]])
+        if (DEBUG):  print 'MS.UMatrix udir, U ',udir,U
+        return U        
+
+
+
 class NEXT:
     """ NEXT parameters (depends on pressure and temperature)
     """
@@ -68,6 +108,7 @@ class ELoss:
         
     def deltaE(self,ene0,deltax=0.5):
         # temporal
+        deltax = abs(deltax)
         de = 0.03556*(deltax/0.5)
         de = min(ene0,de)
         deltax = (de/0.03556)*0.5
@@ -80,6 +121,7 @@ class ELoss:
 
     def deltax(self,ene0,deltaene=0.050):
         # Determine the distance of this step.
+        deltaene=abs(deltaene)
         enef = max(0.,ene0-deltaene)
         de = ene0-enef
         dis = 0.5*(de/0.03556)
@@ -91,7 +133,7 @@ class MS:
     """ Multiple scattering, depends on the radiation length and particle mass for a given energy
     """
 
-    thetamax = 10.
+    thetamax = pi/4.
 
     def __init__(self,X0,mass=0.511):
         self.X0 = X0
@@ -102,7 +144,7 @@ class MS:
         tms = self.theta(p,dis)
         ok = (tms<=MS.thetamax)
         if (DEBUG or not ok):
-            print "MS.isvalid p,dis,tms",p,dis,tms
+            print "MS.isvalid p,dis,tms,ok ",p,dis,tms,ok
         return ok
 
     def theta(self,p,dis):
@@ -111,6 +153,7 @@ class MS:
         """
         dis = abs(dis)
         if (dis<=0.): return 0.
+        if (self.X0 <=0.): return 0.
         udis =dis/self.X0
         ene = sqrt(self.mass**2+p**2)
         beta = p/ene
@@ -169,43 +212,13 @@ class MS:
         if (DEBUG): print 'MS.random p,dis,x,theta ',p,dis,y,theta
         return y,theta
 
-    @staticmethod
-    def UMatrix(udir):
-        """ returns the rotation matrix that transfrom vectors in the track ref. system to the global system
-        """
-        ux,uy,uz = udir
-        uu = sqrt(ux*ux+uy*uy+uz*uz)
-        ux = ux/uu; uy = uy/uu; uz = uz/uu
-        #print ' u ',ux,uy,uz
-        if (abs(uz)==0.): raise ZeroDivisonError
-        vx = uz; vy = 0.; vz = -ux
-        vv = sqrt(vx*vx+vy*vy+vz*vz)
-        if (abs(vv)==0.): raise ZeroDivisonError
-        vx = vx/vv; vy = vy/vv; vz=vz/vv
-        #print ' v ',vx,vy,vz
-        wx = -uy*ux/vv; wy = vv; wz = -uy*uz/vv
-        ww = sqrt(wx*wx+wy*wy+wz*wz)
-        wx = wx/ww; wy = wy/ww; wz = wz/ww        
-        #print ' w ',wx,wy,wz
-        #tx = ux/uz; ty = uy/uz
-        #if (not phi): phi = random.uniform(0.,2.*pi)
-        #txp = tan(phi)
-        #typ = (-1-txp*tx)/ty
-        #vv = sqrt(1.+txp*txp+typ*typ)
-        #vx = txp/vv; vy = typ/vv; vz = 1./vv
-        #wx = (uy*vz-uz*vy); wy = -1.*(ux*vz-uz*vx); wz = (ux*vy-uy*vx)
-        # UMatrix convert track ref system to global system
-        U = KFMatrix( [[vx,wx,ux ],[vy,wy,uy],[vz,wz,uz]])
-        if (DEBUG):  print 'MS.UMatrix udir, U ',udir,U
-        return U        
-
     def XUrandom(self,p,dis,x0,udir):
         """ return a position and direction (in the global system) 
         after a random MS of a particle with momentum p
         that traverses a distance dis with a direction udir
         """
         udir.Unit()
-        U = MS.UMatrix(udir)
+        U = Ref.UMatrix(udir)
         #print ' U ',U
         Q0 = self.Q0Matrix(p,dis)
         #print ' Q0 ',Q0
