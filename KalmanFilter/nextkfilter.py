@@ -1,7 +1,7 @@
 from KFBase import KFVector 
 from KFBase import KFMatrix,KFMatrixNull,KFMatrixUnitary,Random 
 from kfilter import KFData,KFNode,KFPropagate,KFFilter
-from nextphysdat import NEXT,ELoss,MS
+from nextkfnoiser import NEXT,MSNoiser,ELoss
 from math import *
 import random
 
@@ -14,44 +14,51 @@ Trayectory is a straight line (x,y,tx,ty,ene) and the medium is continuous
 
 """
 
-class KFLinePropagate(KFPropagate):
-    """ it assumes and state (x,y,tx,ty,ene) 
+class KFZLinePropagate(KFPropagate):
+    """ StraightLine propagation of a ZState
     """
 
-    def __init__(self,radlen=0.):
-        """ constructor of a LinePropoagator with a redlen
+    def __init__(self,noiser=None,eloss=None):
+        """ constructor of a ZLine propoagator for a (x,y,tx,ty,ene) statte with
+        para the forward(+1)/backward(-1) sense along z
+        It uses a noiser for the MS and energy loss for ene parameters
         """
-        self.radlen = radlen
-        self.ms = MS(radlen)
+        self.noiser=noiser
+        self.eloss=eloss 
         return
 
-    def isvalid(self,state,zrun):
-        xx = state.vec
-        x0,y0,tx,ty,ee = xx
-        z0 = state.zrun
-        icost = sqrt(1+tx*tx+ty*ty)
-        ds = (zrun-z0)*icost
-        if (abs(ds) == 0.): return False
-        ok = self.ms.isvalid(ee,abs(ds))
+    def validstep(self,state,zrun):
+        dz = zrun-state.zrun
+        ok = True
+        #ok = (state.par*dz>0.)
         if (not ok): 
-            print "Warning! propagate no valid due to ms"
+            print "KFZLinePropagate.velid step Warning no valid dz ",dz,' state z-forward/backward ',state.par
             return ok
+        ene = state.vec[-1]
+        if (self.noiser):
+            ok = self.noiser.validstep(ene,zrun)
+            if (not ok):
+                print "KFZLinePropagate.velid step Warning no valid noiser "
+        if (self.eloss):
+            ok = self.eloss.validstep(ene,zrun)
+            if (not ok):
+                print "KFZLinePropagate.velid step Warning no valid noiser "
         return ok
-
+        
     def QMatrix(self,x,dz):
         """ Returns the Q matrix for a deltaz
         """ 
         n = x.Length()
         Q = KFMatrixNull(n)
-        if (self.radlen == 0.): return Q
+        if (not self.noiser): return Q
         x,y,tx,ty,ene = x
         p = ene
-        Qms = self.ms.QMatrix(p,dz,tx,ty)
+        Qms = self.noiser.QMatrix(p,dz,tx,ty)
         for i in range(4):
             for j in range(4):
                 Q[i,j] = Qms[i,j]
         for i in range(4,n): Q[i,i]=1.e-32
-        if (DEBUG): print 'KFLinePropagate.QMatrix ',Q
+        if (DEBUG): print 'KFZLinePropagate.QMatrix ',Q
         return Q
 
     def FMatrix(self,x,dz):
@@ -61,7 +68,16 @@ class KFLinePropagate(KFPropagate):
         F = KFMatrixUnitary(n)
         F[0,2]=dz
         F[1,3]=dz
-        if (DEBUG): print 'KFLinePropagate.FMatrix ',F
+        if (self.eloss):
+            tx,ty,ene0=x[2],x[3],x[4]
+            icost = sqrt(1.+tx*tx+ty*ty)
+            ds = dz*icost
+            dene,ds = self.eloss.deltaE(ene0,ds)
+            rat = (ene0-dene)/ene0
+            assert rat >= 0,'KFZLinePropoage.FMatrix no valid eloss %f'%rat
+            F[4,4] = rat
+        if (DEBUG): 
+            print 'KFNextPropagate.FMatrix x ',x,' dz ',dz,' F ',F
         return F
 
     def propagate(self,state,zrun):
@@ -69,7 +85,7 @@ class KFLinePropagate(KFPropagate):
         """
         #print ' propagate state ',state
         #print ' propagate at ',zrun
-        ok = self.isvalid(state,zrun)
+        ok = self.validstep(state,zrun)
         if (not ok): 
             print "Warning! not valid propagate at ",zrun," state ",state.vec
             return ok,None,None,None
@@ -86,67 +102,24 @@ class KFLinePropagate(KFPropagate):
         #print ' xp ',xp
         Cp = F*C*FT+Q
         #print ' Cp ',Cp
-        pstate = KFData(xp,Cp,zrun)
+        pstate = KFData(xp,Cp,zrun,state.pars)
         #print ' propagated state ',pstate
         #print " F ",F
         #print " Q ",Q
-        if (DEBUG): print 'KFLinePropagate.propagate state,F,Q ',pstate,F,Q
+        if (DEBUG): print 'KFZLinePropagate.propagate state,F,Q ',pstate,F,Q
         return ok,pstate,F,Q
-            
-class KFNextPropagate(KFLinePropagate):
 
-    def __init__(self,next=None):
-        self.next = next
-        if (not self.next): self.next = NEXT()
-        self.ms = self.next.ms
-        self.eloss = self.next.eloss
-        self.radlen = self.ms.X0
-        return
-
-    def isvalid(self,state,zrun):
-        ok = KFLinePropagate.isvalid(self,state,zrun)
-        if (not ok): return ok
-        xx = state.vec
-        x0,y0,tx,ty,ee = xx
-        z0 = state.zrun
-        icost = sqrt(1+tx*tx+ty*ty)
-        ds = abs(zrun-z0)*icost
-        ok = self.eloss.isvalid(ee,ds)
-        if (not ok): 
-            print "Warning! propagate no valid due to eloss"
-            return ok
-        return True
-        
-    def FMatrix(self,x,zrun):
-        F = KFLinePropagate.FMatrix(self,x,zrun)
-        tx,ty,ene0=x[2],x[3],x[4]
-        if (ene0<=0.): self.success = False
-        icost = sqrt(1+tx*tx+ty*ty)
-        ds = zrun*icost
-        dene,ds = self.eloss.deltaE(ene0,ds)
-        F[4,4] = (ene0-dene)/ene0
-        if (DEBUG): 
-            print 'KFNextPropagate.FMatrix ene0,dene,ds,F',ene0,dene,ds,F
-        return F
-
-class KFLineFilter(KFFilter):
+class KFZLineFilter(KFFilter):
     """ a KFFilter class for NEXT
     """
 
-    def __init__(self,eloss=False,radlen=-1.):
+    def __init__(self,noiser=None,eloss=None):
         """ constructor with the xenon presure
-        """
+        """        
         self.hmatrix = KFMatrixNull(2,5)
         self.hmatrix[0,0]=1
         self.hmatrix[1,1]=1
-        next = NEXT()
-        if (not eloss):
-            if (radlen<0.): radlen = next.X0
-            print 'setting propagator with radlen ',radlen 
-            self.propagator = KFLinePropagate(radlen)
-        else:
-            print 'setting propagator next radlen ',next.ms.X0
-            self.propagator = KFNextPropagate(next)
+        self.propagator = KFZLinePropagate(noiser,eloss)
         return
 
     def sethits(self,hits):
@@ -157,175 +130,255 @@ class KFLineFilter(KFFilter):
         self.status = 'hits'
         return
 
-    #def user_filter(self,node):
-        #fstate = node.getstate('filter')
-        #tstate = node.getstate('true')
-        #fstate.vec[-1] = tstate.vec[-1]
-    #    return
+    def setnodes(self,nodes):
+        self.nodes = nodes
+        self.state = 'hits'
+        return
      
 class KFNextGenerator:
 
-    def __init__(self,deltae=0.05):
-        self.mass = 0.511 
+    def __init__(self,deltae=0.05,deltax=0.1):
         self.deltae = deltae
+        self.deltax = deltax
         self.next = NEXT()
-        self.ms = MS(self.next.X0)
-        self.eloss = ELoss(self.next.rho)
-        # self.propagator = KFLinePropagator(radlen=self.X0)
-        self.propagator = KFNextPropagate()
+        self.msnoiser = self.next.msnoiser
+        self.eloss = self.next.eloss
+        self.propagator = KFZLinePropagate(self.msnoiser,self.eloss)
         return
 
-    def generate(self,state0,H,V):
-        knodes = []
-        state = state0.copy()
-        C0 = KFMatrixNull(5,5)
-        zprev = state.zrun
-        while (state.vec[-1]>self.deltae):
-            xx = state.vec
-            x0,y0,tx0,ty0,ee0 = xx
-            z0 = state.zrun
-            m0 = H*xx
-            #print ' m0 ',m0
-            sm = Random.cov(V)
-            m = m0+sm
-            #print ' hit ',m
-            hit = KFData(m,V,z0)
-            knode = KFNode(hit,H)
-            knode.setstate('true',state)
-            knodes.append(knode)
-            xv0 = KFVector([x0,y0,z0]) 
-            uz = 1.
-            if (zprev>z0): uz=-1.
-            zprev = z0
+    def generate(self,state0):
+        states = []
+        state = list(state0)
+        ee = state[-1]
+        while (self.eloss.validstep(ee,self.deltax)):
+            states.append(state)
+            x0,y0,z0,ux0,uy0,uz0,ee0 = state
             xv0 = KFVector([x0,y0,z0])
-            uv0 = KFVector([tx0,ty0,uz])
+            uv0 = KFVector([ux0,uy0,uz0])
             uv0.Unit()
             #print ' x0 ',xv0
             #print ' u0 ',uv0
-            de,ds = self.eloss.deltax(ee0)
+            #print ' ee0 ',ee0
+            de,ds = self.eloss.deltax(ee0,self.deltae)
             #print ' de, ds ',de,ds
-            p = ee0
-            xvf,uvf = self.ms.XUrandom(p,ds,xv0,uv0)
-            #print ' xf, vf ',xvf,uvf
-            xf,yf,zf = xvf; uxf,uyf,uzf = uvf; txf = uxf/uzf; tyf = uyf/uzf
-            xx = KFVector([xf,yf,txf,tyf,ee0-de])
-            #print ' >> xx ',xx,' z >> ',zf
-            state = KFData(xx,C0,zf)
-            #print ' state ',state
-        return knodes
+            xvf,uvf = self.msnoiser.XUrandom(ee0,ds,xv0,uv0)
+            x,y,z=xvf; ux,uy,uz=uvf
+            ee = ee0-de
+            state = [x,y,z,ux,uy,uz,ee]
+            if (DEBUG): 
+                print 'KFNextGenerator.generate new state ',state
+        return states
 
-class KFNextLenghtGenerator:
-
-    def __init__(self,deltae=0.05):
-        self.mass = 0.511 
-        self.deltae = deltae
-        self.next = NEXT()
-        self.ms = MS(self.next.X0)
-        self.eloss = ELoss(self.next.rho)
-        # self.propagator = KFLinePropagator(radlen=self.X0)
-        self.propagator = KFNextPropagate()
-        return
-
-    def generate(self,state0,H,V):
-        knodes = []
-        state = state0.copy()
-        C0 = KFMatrixNull(5,5)
-        zprev = state.zrun
-        while (state.vec[-1]>self.deltae):
-            # store states
-            xx = state.vec
-            x0,y0,z0,tx0,ty0,ee0 = xx
-            z0 = state.zrun
-            m0 = H*xx
-            sm = Random.cov(V)
-            m = m0+sm
-            hit = KFData(m,V,z0)
-            knode = KFNode(hit,H)
-            knode.setstate('true',state)
-            knodes.append(knode)
-            # generate new state
-            de,ds = self.eloss.deltax(ee0)
-            icost = sqrt(1+tx*tx+ty*ty)
-            dz = ds/icost
-            ok,state,F,Q = self.propagator(state,dz)
-            if (not ok): break
+    @staticmethod
+    def kfnodes(states,zs,xres):
+        H = KFMatrixNull(2,5); H[0,0]=1.; H[1,1]=1.
+        zsts = KFNextGenerator.sample(states,zs)
+        hits = KFNextGenerator.hits(zsts,xres)
+        kfts = KFNextGenerator.kfstates(zsts)
+        def knode(hit,st):
+            nod = KFNode(hit,H)
+            nod.setstate('true',st)
+            return nod
+        ks = map(knode,hits,kfts)
         if (DEBUG):
-            print 'KFNextLengthGenerator.propagate ',knodes
-        return knodes
+            print "KFNextGenerator.kfnodes kfnodes ",ks
+        return ks
+
+    @staticmethod
+    def sample(states,zs):
+        zstates = []
+        nn = len(states)
+        def getzi(st0,st1):
+            x0,y0,z0,ux0,uy0,uz0,ee0=st0
+            x1,y1,z1,ux1,uy1,uz1,ee1=st1
+            for zi in zs:
+                ok = False
+                if (z0<=zi and zi<z1): ok =True
+                if (z0>=zi and zi>z1): ok = True
+                if (ok):
+                    #print ' zi! ',z0,zi,z1
+                    return zi
+            return None
+        def zstate(st0,st1,z):
+            x0,y0,z0,ux0,uy0,uz0,ee0=st0
+            x1,y1,z1,ux1,uy1,uz1,ee1=st1
+            x = x0+(ux0/uz0)*(z-z0)
+            y = y0+(uy0/uz0)*(z-z0)
+            ee = ee0-(ee0-ee1)*(z-z0)/(z1-z0)
+            stz = (x,y,z,ux0,uy0,uz0,ee)
+            #print " st0 ",st0
+            #print " st1 ",st1
+            #print " stz ",stz
+            return stz
+        for ii in range(1,nn-1):
+            st0,st1 = states[ii],states[ii+1]
+            zi = getzi(states[ii],states[ii+1])
+            if (not zi): continue
+            zst =  zstate(st0,st1,zi)
+            zstates.append(zst)
+        if (DEBUG): 
+            print "KFNextGenerator.sample zstates ",zstates
+        return zstates
+    
+    @staticmethod
+    def hits(states,xres=0.01):
+        zhits = []
+        V = KFMatrix([[xres*xres,0.],[0.,xres*xres]])
+        for state in states:
+            x0,y0,z0,ux,uy,uz,ee = state            
+            m0 = KFVector([x0,y0])
+            sm = Random.cov(V)
+            mm = m0+sm
+            zhit = KFData(mm,V,z0)
+            zhits.append(zhit)
+        if (DEBUG): 
+            print "KFNextGenerator.hits hits ",zhits
+        return zhits
+
+    @staticmethod
+    def kfstates(states):
+        sts = []
+        C0 = KFMatrixNull(5,5)
+        for state in states:
+            x,y,z,ux,uy,uz,ee = state
+            st = KFData(KFVector([x,y,ux/uz,uy/uz,ee]),C0,z,pars={'uz':uz})
+            sts.append(st)
+        if (DEBUG):
+            print "KFNextGenerator.kfstates ",sts
+        return sts
 
 #---- checks -------
 
 def ck_kfilter(radlen=1500.):
-    nhits = 10
     
-    zdis = 2. # distance z between planes
-    z0 = 1. # position of the 1st plane
-    tx = 1. # tx slope
-    ty = 0. # ty slope
-    
-    xs = map(lambda i: tx*i*zdis,range(nhits)) # true xs positions
-    ys = map(lambda i: ty*i*zdis,range(nhits)) # true ys positions
-    zs = map(lambda i: i*zdis+z0,range(nhits)) # true zs positions
+    # Preparation
+    #--------------
+
+    # V matrix 
     xres = 0.01 # x resolution
     yres = 0.01 # y resolution
-
-    # H matrix 
     V = KFMatrixNull(2) 
     V[0,0]=xres*xres
     V[1,1]=yres*yres
 
     # hits
-    hits = map(lambda x,y,z: KFData(KFVector([x,y]),V,z),xs,ys,zs)
+    nhits = 10 # number of hits
+    zdis = 2. # distance z between planes
+    z0 = 1. # position of the 1st plane
+    zs = map(lambda i: z0+zdis*i,range(nhits))
+    hits = map(lambda z: KFData(KFVector([0.,0.]),V,z),zs)
     print ">>> Preparation "
     print ' empty hits ',hits
 
-    # create NEXT Kalman Filter
-    kf = KFLineFilter(radlen)
+    # create NEXT Kalman Filte
+    msnoiser = MSNoiser(radlen)
+    kf = KFZLineFilter(noiser=msnoiser)
     kf.sethits(hits)
-    x = KFVector([0.,0.,0.,0.,2.5])
-    C = KFMatrixNull(5,5)
-    state0 = KFData(x,C,0.)
 
     print ">>> Generation "
-    hits,vstates = kf.generate(state0)  # generate
-    for i in range(len(hits)):
-        print ' state ',vstates[i].vec
-        print ' hit ',hits[i]
-    
+    x0 = KFVector([0.,0.,0.,0.,2.5])
+    C0 = KFMatrixNull(5,5)
+    state0 = KFData(x0,C0,0.)
+    knodes = kf.generate(state0)  # generate
+    for i in range(len(kf)):
+        print 'knode ',i,knodes[i]
+        
     print '>>>> Fit '
-    kf.sethits(hits)
+    x0 = KFVector([0.,0.,0.,0.,2.5])
+    C0 = KFMatrixUnitary(5)
+    state0 = KFData(x0,C0,0.)
+    kf.setnodes(knodes)
     ok,fchi2,schi2 = kf.fit(state0)
     print "ok, fchi2, schi2 ",ok,fchi2,schi2
     if (not ok):
         print "Not possible to fit! "
         return
     for node in kf.nodes:
-        print 'NODE ',node
-        print 'chi2 ',node.getchi2('smooth')
+        print 'node ',node
 
 def ck_generator():
 
-    E0 = 2.5; z0 = 0.
-    x0 = KFVector([0.,0.,0.,0.,E0])
-    C0 = KFMatrixNull(5,5)
-    V = KFMatrixNull(3,3)
-    xres = 0.01; eres=0.01
-    V[0,0]=xres*xres; V[1,1]=xres*xres; V[2,2]=eres*eres
-    H = KFMatrixNull(3,5)
-    H[0,0]=1.;H[1,1]=1.;H[2,4]=1.;
-    state0 = KFData(x0,C0,z0)
+    from alex.rootsvc import ROOTSvc
+    root = ROOTSvc('root','temp.root')
+    root.open()
 
-    kfgen = KFNextGenerator()
+    deltae=0.01
+    nhits = int(2.5/deltae)
 
-    hits,states = kfgen.generate(state0,H,V)
+    root.h2d('xi',nhits,0,1.*nhits,100,-15.,15.)
+    root.h2d('yi',nhits,0,1.*nhits,100,-15.,15.)
+    root.h2d('zi',nhits,0,1.*nhits,100,-5.,20.)
+    root.h2d('ei',nhits,0,1.*nhits,100,0.,3.)
+    
+    root.h2d('xz',100,-5.,20,100,-15.,15.)
+    root.h2d('yz',100,-5.,20,100,-15.,15.)
 
-    print "Hits ",hits
-    print "States ",states
+    root.h2d('kxz',100,-5.,20,100,-15.,15.)
+    root.h2d('kyz',100,-5.,20,100,-15.,15.)
 
+    for k in range(10):
 
+        pp = '_evt'+str(k)
+
+        root.h2d('xi'+pp,nhits,0,1.*nhits,100,-15.,15.)
+        root.h2d('yi'+pp,nhits,0,1.*nhits,100,-15.,15.)
+        root.h2d('zi'+pp,nhits,0,1.*nhits,100,-5.,20.)
+        root.h2d('ei'+pp,nhits,0,1.*nhits,100,0.,3.)
+        
+        root.h2d('xz'+pp,100,-5.,20,100,-15.,15.)
+        root.h2d('yz'+pp,100,-5.,20,100,-15.,15.)
+
+        root.h2d('kxz'+pp,100,-5.,20,100,-15.,15.)
+        root.h2d('kyz'+pp,100,-5.,20,100,-15.,15.)
+    
+        kfgen = KFNextGenerator(deltae)
+
+        state0 = [0.,0.,0.,0.,0.,1.,2.5]
+        states = kfgen.generate(state0)
+        print " states ",states
+
+        dz = 0.5
+        zs = map(lambda i: (i+1)*dz,range(20))
+        #zstates = KFNextGenerator.sample(states,zs)
+        #print " zstates ",zstates
+
+        #hits = KFNextGenerator.hits(zstates,0.01)
+        #print " zstates ",hits
+
+        nods = KFNextGenerator.kfnodes(states,zs,0.01)
+        print " znodes ",nods
+
+        i = 0
+        for state in states:
+            i+=1
+            x,y,z,ux,uy,uz,ee = state
+            root.fill('xi'+pp,i,x)
+            root.fill('yi'+pp,i,y)
+            root.fill('zi'+pp,i,z)
+            root.fill('ei'+pp,i,ee)
+            root.fill('xz'+pp,z,x)
+            root.fill('yz'+pp,z,y)
+
+            root.fill('xi',i,x)
+            root.fill('yi',i,y)
+            root.fill('zi',i,z)
+            root.fill('ei',i,ee)
+            root.fill('xz',z,x)
+            root.fill('yz',z,y)
+
+        for nod in nods:
+            st = nod.getstate('true')
+            x,y,tx,ty,ee = st.vec; z = st.zrun
+            root.fill('kxz'+pp,z,x)
+            root.fill('kyz'+pp,z,y)
+
+            root.fill('kxz',z,x)
+            root.fill('kyz',z,y)
+
+    root.close()
 #--- main ---    
    
 if __name__ == '__main__':
 
-    ck_kfilter(1500.)
-    #hits,states = ck_generator()
+    #ck_kfilter(1500.)
+    ck_generator()

@@ -16,70 +16,30 @@ from exceptions import ZeroDivisionError
 
 DEBUG = False
 
-class Ref:
 
-    @staticmethod
-    def cost(tx,ty,uz=1.):
-        udir = uz/abs(uz)
-        ct = udir/sqrt(1.+tx*tx+ty*y)
-        return ct
-
-    @staticmethod
-    def UMatrix(udir):
-        """ returns the rotation matrix that transfrom vectors in the track ref. system to the global system
-        """
-        ux,uy,uz = udir
-        uu = sqrt(ux*ux+uy*uy+uz*uz)
-        ux = ux/uu; uy = uy/uu; uz = uz/uu
-        #print ' u ',ux,uy,uz
-        if (abs(uz)==0.): raise ZeroDivisonError
-        vx = uz; vy = 0.; vz = -ux
-        vv = sqrt(vx*vx+vy*vy+vz*vz)
-        if (abs(vv)==0.): raise ZeroDivisonError
-        vx = vx/vv; vy = vy/vv; vz=vz/vv
-        #print ' v ',vx,vy,vz
-        wx = -uy*ux/vv; wy = vv; wz = -uy*uz/vv
-        ww = sqrt(wx*wx+wy*wy+wz*wz)
-        wx = wx/ww; wy = wy/ww; wz = wz/ww        
-        #print ' w ',wx,wy,wz
-        #tx = ux/uz; ty = uy/uz
-        #if (not phi): phi = random.uniform(0.,2.*pi)
-        #txp = tan(phi)
-        #typ = (-1-txp*tx)/ty
-        #vv = sqrt(1.+txp*txp+typ*typ)
-        #vx = txp/vv; vy = typ/vv; vz = 1./vv
-        #wx = (uy*vz-uz*vy); wy = -1.*(ux*vz-uz*vx); wz = (ux*vy-uy*vx)
-        # UMatrix convert track ref system to global system
-        U = KFMatrix( [[vx,wx,ux ],[vy,wy,uy],[vz,wz,uz]])
-        if (DEBUG):  print 'MS.UMatrix udir, U ',udir,U
-        return U        
-
-
+""" NEXT parameters (depends on pressure and temperature)
+"""
+# density of ideal gas at T=0C, P=1 atm in cm^(-3)
 
 class NEXT:
-    """ NEXT parameters (depends on pressure and temperature)
-    """
-    # density of ideal gas at T=0C, P=1 atm in cm^(-3)
-    rho0_gas = 2.6867774e19;
-    # Avogadro constant   
-    NA = 6.02214179e23;    
+    rho0_gas = 2.6867774e19; 
+    NA = 6.02214179e23;    # Avogadro constant   
     XeX0 = 1530. # xenon radiation length  * pressure in cm * bar
     Xemass_amu = 131.293;        # mass of xenon in amu
+    pgas = 10. # atmos
+    tgas = 295.15 # Kelvin
+    X0 = XeX0/(pgas/1.01325); # radiation length of xenon
+    rho = rho0_gas*(pgas/(tgas/273.15))*(Xemass_amu/NA);
     
-    def __init__(self,pgas=10.,tgas=293.15):
-        self.pgas = pgas # gas pressure in atm
-        self.tgas = tgas # gas temperature in Kelvel
-        self.X0 = NEXT.XeX0/(self.pgas/1.01325); # radiation length of xenon
-        self.rho = NEXT.rho0_gas*(self.pgas/(self.tgas/273.15))*(NEXT.Xemass_amu/NEXT.NA);
-
-        self.eloss = ELoss(self.rho)
-        self.ms = MS(self.X0)
-        
-        return
+    def __init__(self):
+        self.eloss = ELoss(NEXT.rho)
+        self.msnoiser = MSNoiser(NEXT.X0)
 
 class ELoss:
     """ Energy loss for electrons in NEXT (depend on the density rho)
     """
+
+    enemin = 0.2
 
     def __init__(self,rho):
         """ construction of Energy loss object
@@ -96,14 +56,15 @@ class ELoss:
         # this is the dE/dx(E) function
         return 
 
-    def isvalid(self,ene0,ds):
+    def validstep(self,ene,ds):
         ok = True
         ds = abs(ds)
-        de,dz = self.deltaE(ene0,ds)
+        de,dz = self.deltaE(ene,ds)
         if (dz+0.001<ds): ok = False
-        if (ene0-de<=0.): ok= False
+        if (ene<ELoss.enemin): ok = False
+        if (ene-de<=0.): ok= False
         if (DEBUG or not ok):
-            print "ELoss.isvalid dz,ds,ene0,de,ok",dz,ds,ene0,de,ok
+            print "ELoss.isvalid dz,ds,ene0,de,ok",dz,ds,ene,de,ok
         return ok
         
     def deltaE(self,ene0,deltax=0.5):
@@ -129,22 +90,22 @@ class ELoss:
         if (DEBUG): print 'Eloss.deltax de,dx ',de,dis 
         return de,dis
 
-class MS:
+class MSNoiser:
     """ Multiple scattering, depends on the radiation length and particle mass for a given energy
     """
 
     thetamax = pi/4.
 
-    def __init__(self,X0,mass=0.511):
+    def __init__(self,X0=0.,mass=0.511):
         self.X0 = X0
         self.mass = mass
         return
 
-    def isvalid(self,p,dis):
+    def validstep(self,p,dis):
         tms = self.theta(p,dis)
-        ok = (tms<=MS.thetamax)
+        ok = (tms<=MSNoiser.thetamax)
         if (DEBUG or not ok):
-            print "MS.isvalid p,dis,tms,ok ",p,dis,tms,ok
+            print "MSNoiser.isvalid p,dis,tms,ok ",p,dis,tms,ok
         return ok
 
     def theta(self,p,dis):
@@ -152,12 +113,12 @@ class MS:
         that travel a distance (dis) in radiation units
         """
         dis = abs(dis)
-        if (dis<=0.): return 0.
+        if (dis == 0.): return 0.
+        #assert dis != 0., 'MSNoiser.theta no valid distance %f'%dis
         if (self.X0 <=0.): return 0.
         udis =dis/self.X0
         ene = sqrt(self.mass**2+p**2)
         beta = p/ene
-        if (DEBUG): print 'MS.theta p, beta, udis, theta ',p,beta,udis
         tms = (13.6)/(p*1.*beta)*sqrt(udis*1.)*(1+0.038*log(udis*1.))
         if (DEBUG): print 'MS.theta p, beta, udis, theta ',p,beta,udis,tms
         return tms
@@ -167,7 +128,85 @@ class MS:
         The cov matrix is associated to [x,y,thetax,thetay],
         where x,y are the orthogonal coordinates to the z-direction
         """
-        return self.QMatrix(p,dis,0.,0.)
+        theta0 = self.theta(p,dis)
+        theta02 = theta0*theta0
+        Q = KFMatrixNull(4,4)
+        Q[0,0] = dis*dis*theta02/3.
+        Q[0,2] = dis*theta02/2.
+        Q[1,1] = dis*dis*theta02/3.
+        Q[1,3] = dis*theta02/2.
+        Q[2,2] = theta02
+        Q[3,3] = theta02
+        for i in range(4):
+            for j in range(i+1,4):
+                Q[j,i] = Q[i,j]
+        if (DEBUG): print 'MS.Q p,zdis,tx,ty,Q ',p,zdis,tx,ty,Q
+        return Q
+
+    def random(self,p,dis):
+        """ generate multiple scattering random variables in x (transverse direction), theta 
+        for a particle of mass and total momentum p that transverses a distance d
+        in a medium with radiation lenght X0
+        """
+        theta0 = MS.theta(p,dis)
+        rho = sqrt(3.)/2.
+        z1,z2 = random.gauss(0.,1.),random.gauss(0.,1.)
+        y = z1*dis*theta0/sqrt(12.)+z2*dis*theta0/2.
+        theta = z2*theta0
+        if (DEBUG): print 'MS.random p,dis,x,theta ',p,dis,y,theta
+        return y,theta
+    
+    @staticmethod
+    def UMatrix(udir):
+        """ returns the rotation matrix that transfrom vectors in the track ref. system to the global system
+        """
+        ux,uy,uz = udir
+        uu = sqrt(ux*ux+uy*uy+uz*uz)
+        ux = ux/uu; uy = uy/uu; uz = uz/uu
+        #print ' u ',ux,uy,uz
+        if (abs(uz)==0.): raise ZeroDivisonError
+        vx = uz; vy = 0.; vz = -ux
+        vv = sqrt(vx*vx+vy*vy+vz*vz)
+        if (abs(vv)==0.): raise ZeroDivisonError
+        vx = vx/vv; vy = vy/vv; vz=vz/vv
+        #print ' v ',vx,vy,vz
+        wx = -uy*ux/vv; wy = vv; wz = -uy*uz/vv
+        ww = sqrt(wx*wx+wy*wy+wz*wz)
+        wx = wx/ww; wy = wy/ww; wz = wz/ww        
+        #print ' w ',wx,wy,wz
+        # UMatrix convert track ref system to global system
+        U = KFMatrix( [[vx,wx,ux ],[vy,wy,uy],[vz,wz,uz]])
+        if (DEBUG):  print 'MS.UMatrix udir, U ',udir,U
+        return U        
+
+    def XUrandom(self,p,dis,x0,udir):
+        """ return a position and direction (in the global system) 
+        after a random MS of a particle with momentum p
+        that traverses a distance dis with a direction udir
+        """
+        udir.Unit()
+        U = MSNoiser.UMatrix(udir)
+        #print ' U ',U
+        Q0 = self.Q0Matrix(p,dis)
+        #print ' Q0 ',Q0
+        x1,x2,t1,t2 = Random.cov(Q0)
+        #print ' x1,x2,t1,t2 ',x1,x2,t1,t2
+        t1 = tan(t1); t2 = tan(t2); nor = sqrt(1.+t1*t1+t2*t2)
+        xt = KFVector([x1,x2,0.]) 
+        ut = KFVector([t1/nor,t2/nor,1./nor]) 
+        #print ' xt ',xt
+        #print ' ut ',ut
+        xf = x0 + dis*udir
+        #print ' xf ',xf
+        xf = xf+U*xt
+        #print ' xf ',xf
+        uf = U*ut
+        #print ' uf ',uf
+        if (DEBUG): 
+            print 'MS.XYrandom p,dis,x0,udir ',p,dis,x0,udir
+            print 'MS.XYrandom xt,ut ',xt,ut
+            print 'MS.XYrandom dx,dxt,uf ',x0+dis*udir,U*xt,xf,uf
+        return xf,uf
 
     def QMatrix(self,p,zdis,tx,ty):
         """ returns the MS cov matrix in a reference frame (x,y,z) of a particle with momentum p and mass, traversing a material with X0 radiation lenght.
@@ -198,49 +237,6 @@ class MS:
         if (DEBUG): print 'MS.Q p,zdis,tx,ty,Q ',p,zdis,tx,ty,Q
         return Q
             
-    
-    def random(self,p,dis):
-        """ generate multiple scattering random variables in x (transverse direction), theta 
-        for a particle of mass and total momentum p that transverses a distance d
-        in a medium with radiation lenght X0
-        """
-        theta0 = MS.theta(p,dis)
-        rho = sqrt(3.)/2.
-        z1,z2 = random.gauss(0.,1.),random.gauss(0.,1.)
-        y = z1*dis*theta0/sqrt(12.)+z2*dis*theta0/2.
-        theta = z2*theta0
-        if (DEBUG): print 'MS.random p,dis,x,theta ',p,dis,y,theta
-        return y,theta
-
-    def XUrandom(self,p,dis,x0,udir):
-        """ return a position and direction (in the global system) 
-        after a random MS of a particle with momentum p
-        that traverses a distance dis with a direction udir
-        """
-        udir.Unit()
-        U = Ref.UMatrix(udir)
-        #print ' U ',U
-        Q0 = self.Q0Matrix(p,dis)
-        #print ' Q0 ',Q0
-        x1,x2,t1,t2 = Random.cov(Q0)
-        #print ' x1,x2,t1,t2 ',x1,x2,t1,t2
-        t1 = tan(t1); t2 = tan(t2); nor = sqrt(1.+t1*t1+t2*t2)
-        xt = KFVector([x1,x2,0.]) 
-        ut = KFVector([t1/nor,t2/nor,1./nor]) 
-        #print ' xt ',xt
-        #print ' ut ',ut
-        xf = x0 + dis*udir
-        #print ' xf ',xf
-        xf = xf+U*xt
-        #print ' xf ',xf
-        uf = U*ut
-        #print ' uf ',uf
-        if (DEBUG): 
-            print 'MS.XYrandom p,dis,x0,udir ',p,dis,x0,udir
-            print 'MS.XYrandom xt,ut ',xt,ut
-            print 'MS.XYrandom dx,dxt,uf ',x0+dis*udir,U*xt,xf,uf
-        return xf,uf
-
 #--------------------------
 
 def ck_ELoss():
@@ -284,7 +280,7 @@ def ck_MS():
     X0 = 150. # mm
     dis = 5. # mm
 
-    ms = MS(X0)
+    ms = MSNoiser(X0)
 
     root = ROOTSvc(fname='ck_nextphysdat.root')
     root.h1d('x',100,-10.,10.)
@@ -297,7 +293,7 @@ def ck_MS():
     
     for i in range(1000):
 
-        Q = ms.QMatrix0(p,dis)
+        Q = ms.Q0Matrix(p,dis)
         z = Random.cov(Q)
         x,tx = ms.random(p,dis)
         
@@ -316,7 +312,7 @@ def ck_XU():
 
     p=2.5
     dis = 10.
-    ms = MS(X0=1500.)
+    ms = MSNoiser(X0=1500.)
     udir = KFVector([0.,1.,1.])
     udir.Unit()
     x0 = KFVector([0.,0.,0.])

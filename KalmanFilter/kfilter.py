@@ -15,21 +15,25 @@ class KFData(object):
     it is associated to a running parameters (zrun)
     """
     
-    def __init__(self,vec,cov,zrun):
+    def __init__(self,vec,cov,zrun,pars={}):
         """ create KFData with a vector a cov matrix and the zrun parameter
         """
         self.vec = KFVector(vec)
         self.cov = KFMatrix(cov)
         self.zrun = zrun
+        self.pars = dict(pars)
+        for key in self.pars.keys():
+            setattr(self,key,pars[key])
         return
 
     def __str__(self):
         """ convert to str a KFData object
         """
         s = ' KFData '
-        s += 'vector: '+str(self.vec)+'\n'
-        s += 'matrix: '+str(self.cov)+'\n'
-        s += 'zrun: '+str(self.zrun)
+        s += 'vector: '+str(self.vec)+', \t'
+        s += 'matrix: '+str(self.cov)+', \t'
+        s += 'zrun: '+str(self.zrun)+',\t'
+        s += 'pars '+str(self.pars)
         return s
 
     def __repr__(self):
@@ -40,15 +44,20 @@ class KFData(object):
     def copy(self):
         """ copy a KFData object
         """
-        return KFData(self.vec,self.cov,self.zrun)
+        return KFData(self.vec,self.cov,self.zrun,self.pars)
     
 class KFPropagate(object):    
     """ virtual class to define a system and the propagation of a state
     """
 
+    def validstep(self,state,zrun):
+        """ return True if this step is valid
+        """
+        return True
+
     def propagate(self,state,zrun):
         """ virtual method, propagate an state to a new running position (zrun),
-        it return the propagated state, F and Q matrices
+        it return if was possible to propagete (ok), propagated state, F and Q matrices
         """
         return None,None,None,None
         
@@ -140,7 +149,7 @@ class KFNode(object):
         #print ' x0 ',x0,' sx ',sx,' x ',x
         n,m = C.M.shape
         C0 = KFMatrixNull(n,m)
-        gstate = KFData(x,C0,self.zrun)
+        gstate = KFData(x,C0,self.zrun,state.pars)
         H = self.hmatrix
         m0 = H*x
         V = self.hit.cov
@@ -180,7 +189,7 @@ class KFNode(object):
         #print ' Cf ',Cf
         xf = Cf*(Ci*x+HT*(Vi*m))
         #print ' xf',xf
-        fstate = KFData(xf,Cf,self.zrun)
+        fstate = KFData(xf,Cf,self.zrun,state.pars)
         mres = m-H*xf
         mrest = mres.Transpose()
         xres = xf-x
@@ -213,7 +222,7 @@ class KFNode(object):
         Cs1 = sstate1.cov
         xs = xf + A*(xs1-xp1)
         Cs = Cf + A*(Cs1-Cp1)*AT
-        sstate = KFData(xs,Cs,self.zrun)
+        sstate = KFData(xs,Cs,self.zrun,fstate.pars)
         m = self.hit.vec
         V = self.hit.cov
         H = self.hmatrix

@@ -4,7 +4,8 @@ from alex.rootsvc import ROOTSvc
 import random
 from KFBase import KFVector, KFMatrix, KFMatrixNull, KFMatrixUnitary
 from kfilter import KFData,KFNode
-from nextkfilter import KFLineFilter,KFNextGenerator
+from nextkfilter import KFZLineFilter,KFNextGenerator
+from nextkfnoiser import NEXT,MSNoiser,ELoss
 from math import *
 
 """
@@ -39,7 +40,7 @@ class KFHistos(IAlg):
         
         self.root.h1d('hx',100,-10.,10.)
         self.root.h1d('hy',100,-10.,10.)
-        self.root.h1d('hz',100,-5.,5.)
+        self.root.h1d('hz',100,-5.,20.)
         self.root.h1d('htx',100,-5.,5.)
         self.root.h1d('hty',100,-5.,5.)
         self.root.h1d('hee',100,0.,3.)
@@ -106,12 +107,12 @@ class KFHistos(IAlg):
     
         return True
 
-class KFLine(IAlg):
+class KFZLine(IAlg):
     """ Algorithm to generate SL tracks, fit them with KFNextFilter and fill histos
     """
 
     def define(self):
-        self.radlen = 0.
+        self.radlen = -1.
         self.eloss = False
         self.x0 = 0.
         self.y0 = 0.
@@ -145,7 +146,13 @@ class KFLine(IAlg):
         nullhits = map(lambda z: KFData(KFVector([0,0]),V,z),zs)
         
         # create NEXT Kalman Filter
-        kf = KFLineFilter(radlen=self.radlen,eloss=self.eloss)
+        next = NEXT()
+        msnoiser = next.msnoiser
+        eloss = next.eloss
+        if (self.radlen>=0):
+            msnoiser = MSNoiser(self.radlen)
+        if (not self.eloss): eloss=None
+        kf = KFZLineFilter(msnoiser,eloss)
         kf.sethits(nullhits)
 
         x0 = KFVector([self.x0,self.y0,self.tx,self.ty,self.E0])
@@ -153,9 +160,9 @@ class KFLine(IAlg):
         state0 = KFData(x0,C0,0.)
 
         # generate hits and states into nodes
-        nodes = kf.generate(state0)
+        knodes = kf.generate(state0)
         # set the measured nodes in the kf
-        kf.nodes = nodes
+        kf.setnodes(knodes)
  
         # Fit track
         #------------------
@@ -173,39 +180,42 @@ class KFLine(IAlg):
         self.evt['kf'] = kf
         return True
 
-class KFNext(IAlg):
+class KFNextGen(IAlg):
 
     def define(self):
+        self.deltae = 0.01 # 10 keV
         self.nhits = 20
+        self.zz0 = 0.2
+        self.dz = 0.2
+        self.xres = 0.01
+        return
 
     def execute(self):
-        
-        # generation
-        E0 = 2.5; z0 = 0.
-        x0 = KFVector([0.,0.,0.,0.,E0])
-        C0 = KFMatrixNull(5,5)
-        V = KFMatrixNull(2,2)
-        xres = 0.1; eres=0.01
-        V[0,0]=xres*xres; V[1,1]=xres*xres; #V[2,2]=eres*eres
-        H = KFMatrixNull(2,5)
-        H[0,0]=1.;H[1,1]=1.;#H[2,4]=1.;
-        state0 = KFData(x0,C0,z0)
-        kfgen = KFNextGenerator()
-        nodes = kfgen.generate(state0,H,V)
 
-        kffit = KFLineFilter(eloss=True)
-        nhits = min(self.nhits,len(nodes))
-        kffit.nodes = nodes[:nhits]
+        kfgen = KFNextGenerator(self.deltae)
+        state0 = [0.,0.,0.,0.,0.,1.,2.5]
+        states = kfgen.generate(state0)
         
-        x0 = KFVector([0.,0.,0.,0.,E0])
+        zs = map(lambda i: self.zz0+i*self.dz,range(self.nhits))
+        
+        #zstates = KFNextGenerator.sample(states,zs)
+        #zhits = KFNextGenerator.hits(zstates,self.xres)
+        
+        znodes = KFNextGenerator.kfnodes(states,zs,self.xres)
+
+        next = NEXT()
+        kffit = KFZLineFilter(next.msnoiser,next.eloss)
+        kffit.setnodes(znodes)
         C0 = KFMatrixUnitary(5)
-        state0 = KFData(x0,C0,z0-0.1)
-        ok,fchi,schi = kffit.fit(state0)
-        if (not ok): return False
-        print " Fit ",fchi,schi
+        zstate0 = KFData(KFVector([0.,0.,0.,1.,2.5]),C0,0.)
+        ok,fchi,schi = kffit.fit(zstate0)
 
-        self.evt['kf'] = kffit
-        return True
+        self.evt['gen/states'] = states
+        self.evt['gen/znodes'] = znodes
+        if (ok):
+            self.evt['kf'] = kffit
+
+        return ok
         
 
 if __name__ == '__main__':
@@ -215,19 +225,17 @@ if __name__ == '__main__':
     root = ROOTSvc('root','ck_anextkfilter.root')
     alex.addsvc(root)
 
-    nhits = 20
+    nhits = 40
 
-    kalg = KFLine('kfline')
-
+    #kalg = KFZLine('kfline')
     #kalg.radlen= 1500. # for radlen
-    #kalg.eloss = Fase # for no enery loss
-    # for Next:
+    #kalg.eloss = True # for no enery loss
+    #kalg.nhits = nhits
     #kalg.eloss = True
     #kalg.zz0 = 0.2
     #kalg.zdis = 0.2
-    #kalg.nhits = nhits
 
-    kalg = KFNext('kfnext')
+    kalg = KFNextGen('kfnextgen')
     kalg.nhits = nhits
     
     halg = KFHistos('kfhistos')
