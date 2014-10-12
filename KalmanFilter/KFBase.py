@@ -706,7 +706,7 @@ class Random:
             #det = np.linalg.det(S)
             L = np.linalg.cholesky(S)
         except:
-            print " Warning Random.cov ",S
+            #print " Warning Random.cov ",S
             a = KFVector(n*[0.])
             #print ' null cov! '
             #print ' a ',a
