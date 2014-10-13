@@ -427,7 +427,7 @@ class KFFitHistos(IAlg):
 def ck_gen():
 
     alex = Alex()
-    alex.nevts = 1000
+    alex.nevts = 100
     root = ROOTSvc('root','ck_anextgen.root')
     alex.addsvc(root)
 
