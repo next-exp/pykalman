@@ -17,6 +17,9 @@ from exceptions import ZeroDivisionError
 DEBUG = False
 WARNING = True
 
+MAXTHETA = 1e6*pi
+ENEMIN = 0.05
+
 def debug(comment,arg=''):
     if (DEBUG): print comment,arg
 
@@ -65,7 +68,7 @@ class MSNoise:
     it takes as input a radiation length X0, and a mass
     """
     
-    def __init__(self,X0,mass=0.511,thetamax=pi/4.):
+    def __init__(self,X0,mass=0.511,thetamax=MAXTHETA):
         """ constructor of a multiple scattering noiser with a X0
         """
         self.X0 = X0
@@ -179,7 +182,7 @@ class HPXeELoss(ELoss):
     """ Energy loss for electrons in High Pressure Xenon
     """
 
-    def __init__(self,rho,enemin=0.2):
+    def __init__(self,rho,enemin=ENEMIN):
         """ construction of HPXe Energy loss for election.
         it reuires the rho, Xe density
         """
@@ -205,7 +208,7 @@ class HPXeELoss(ELoss):
         if (ene<self.enemin): ok = False
         if (ene-de<=0.): ok= False
         if (not ok):
-            warning("HPXeEloss.validstep ene0,de,ds,ok ",(ene,de,ds,ok))
+            warning("HPXeEloss.validstep ene0,de,ds,ok ",(ene,de,ds,dz,ok))
         debug("HPXeELoss.validstep ene0,de,ds,ok ",(ene,de,ds,ok))
         return ok
         

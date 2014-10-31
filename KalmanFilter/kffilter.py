@@ -94,7 +94,7 @@ class KFModel(object):
         debug('kfmodel.validstep ',True)
         return True
 
-    def FMatrix(self,xvec,zrun):
+    def FMatrix(self,xvec,zrun,pars=None):
         """ returns the F, transportation matrix, unitary by default
         """
         n =  xvec.Length()
@@ -102,7 +102,7 @@ class KFModel(object):
         debug('kfmodel.Fmatrix ',F)
         return F
 
-    def QMatrix(self,xvec,zrun):
+    def QMatrix(self,xvec,zrun,pars=None):
         """ return the Q, noise matrix, null by default
         """
         debug('kfmodel.QMatrix ',None)
@@ -119,7 +119,7 @@ class KFModel(object):
             return ok,None,None,None
         x = KFVector(state.vec)
         C = KFMatrix(state.cov)
-        deltaz = zrun-state.zrun
+        deltaz = self.deltazrun(state,zrun)
         F = self.FMatrix(x,deltaz)
         FT = F.Transpose()
         #print ' F ',F
@@ -137,6 +137,13 @@ class KFModel(object):
         #print " Q ",Q
         debug('kfmodel.propagate state ',pstate)
         return ok,pstate,F,Q
+
+    def deltazrun(self,state,zrun):
+        dz = zrun-state.zrun
+        return dz
+
+    def user_filter(self,node):
+        return 
         
 
 class KFNode(object):
@@ -385,12 +392,13 @@ class KFFilter(object):
         """
         ok,tchi2 = True,0.
         state = state0.copy()
+        ii = 0
         for node in self.nodes:
             zrun = node.zrun
             ok,state,F,Q = self.model.propagate(state,zrun)
             if (not ok):
-                warning("kfilter.filter not possible to filter at ",zrun)
-                debug("kfilter.filter ok,chi2 ",(ok,tchi2))
+                warning("kfilter.filter not possible to filter at ",(ii,zrun))
+                debug("kfilter.filter i,ok,chi2 ",(ii,ok,tchi2))
                 return ok,tchi2
             node.F = F
             node.Q = Q
@@ -399,7 +407,9 @@ class KFFilter(object):
             node.setstate('filter',fstate)
             node.setchi2('filter',fchi2)
             tchi2+=fchi2
+            self.model.user_filter(node)
             state = node.getstate('filter').copy()
+            ii+=1
         self.status='filter'
         debug("kfilter.filter ok,chi2 ",(ok,tchi2))
         return ok,tchi2
@@ -448,8 +458,9 @@ class KFFilter(object):
             node = self.nodes[k]
             node1 = self.nodes[k+1]
             sstate,schi2 = node.smooth(node1)
-            node.setstate('smooth',sstate)
-            node.setchi2('smooth',schi2)
+            node.setstate('smooth',sstate)            
+            node.setchi2('smooth',schi2) 
+            self.model.user_smooth(node)
             tchi2+=schi2
         self.status='smooth'
         debug("kfilter.smooth ok,chi2 ",(ok,tchi2))

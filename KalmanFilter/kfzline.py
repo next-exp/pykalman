@@ -47,27 +47,43 @@ class KFZLine(KFModel):
     """ StraightLine propagation of a ZState
     """
 
-    def __init__(self,noiser=None,eloss=None):
+    def __init__(self,noiser=None,eloss=None,eres=1.):
         """ constructor of a ZLine propoagator for a (x,y,tx,ty,ene) statte with
         para the forward(+1)/backward(-1) sense along z
         It uses a noiser for the MS and energy loss for ene parameters
         """
         self.noiser = noiser
         self.eloss = eloss 
+        self.eres = eres
         return
+
+    def deltazrun(self,state,zrun):
+        dz = zrun-state.zrun
+        #udir = state.pars['uz']
+        #udir = udir/abs(udir)
+        #dz = dz*udir
+        return dz
+
 
     def validstep(self,state,zrun):
         """ return true is this step is physically acceptable
         """
         ok = iszstate(state)
         assert ok,'kfzline.validstep not valid state'
-        dz = zrun-state.zrun
+        dz = self.deltazrun(state,zrun)
+        if (dz==0): 
+            warning('KFZLine.validstep null dz propagation ',dz)
+            return False
+        #if (dz<0.): 
+            #warning('KFLine.validstep backward propagation z,dz,uz,vec',(zrun,dz,state.vec))
+            #state.pars['uz']=-1.*uz
+            #state.vec[2]*=-1.; state.vec[3]*=-1.;
         #ok = ok and (state.uz*dz>0.)
         ene = state.vec[-1]
         if (self.noiser):
-            ok = ok and self.noiser.validstep(ene,dz)
+            ok = ok and self.noiser.validstep(ene,abs(dz))
         if (self.eloss):
-            ok = ok and  self.eloss.validstep(ene,dz)
+            ok = ok and  self.eloss.validstep(ene,abs(dz))
         if (not ok):
             warning('kfzline.validstep not valid step',(state.vec,zrun))
         debug('kfzline.validstep ok ',ok)
@@ -79,8 +95,10 @@ class KFZLine(KFModel):
         x0,y0,tx,ty,p = x
         norm = 1.+tx*tx+ty*ty
         cost = sqrt(1./norm)
+        assert cost != 0,' ZLineModel.QMatrix cost = 0!'
         dis = zdis/cost
-        theta0 = self.noiser.theta(p,dis)
+        #if (dis<=0): return KFMatrixNull(5)
+        theta0 = self.noiser.theta(p,abs(dis))
         theta02 = theta0*theta0
         ctx = norm*(1+tx*tx)
         cty = norm*(1+ty*ty)
@@ -99,7 +117,7 @@ class KFZLine(KFModel):
         for i in range(4):
             for j in range(i+1,4):
                 Q[j,i] = Q[i,j]
-        Q[4,4]=1.e-32
+        Q[4,4]=self.eres*self.eres
         debug('ZLineMode.Q x,zdis,Q ',(x,zdis,Q))
         return Q
 
@@ -113,10 +131,31 @@ class KFZLine(KFModel):
         if (self.eloss):
             tx,ty,ene0=x[2],x[3],x[4]
             icost = sqrt(1.+tx*tx+ty*ty)
-            ds = dz*icost
+            ds = abs(dz)*icost
             dene,ds = self.eloss.deltae(ene0,ds)
             rat = (ene0-dene)/ene0
-            assert rat >= 0,'KFZLinePropoage.FMatrix no valid eloss %f'%rat
-            F[4,4] = rat
-        debug('KFNextPropagate.FMatrix x,dz,F ',(x,dz,F))
+            if (rat<=0): warning('ZlineModel.FMatrix e-ratio ',rat)
+            F[4,4] = max(rat,0.01)
+        F[4,4]=1.
+        debug('ZLineMode.FMatrix x,dz,F ',(x,dz,F))
         return F
+
+    def user_filter(self,node):
+        if (not 'true' in node.states.keys()): return
+        if (not 'filter' in node.states.keys()): return
+        xf = node.getstate('filter')
+        xt = node.getstate('true')
+        ene0,enef = xf.vec[4],xt.vec[4]
+        xf.vec[4] = xt.vec[4] # set the energy value
+        debug('ZLineMode.user_filter',(ene0,enef))
+        return
+
+    def user_smooth(self,node):
+        if (not 'true' in node.states.keys()): return
+        if (not 'smooth' in node.states.keys()): return
+        xf = node.getstate('smooth')
+        xt = node.getstate('true')
+        ene0,enef = xf.vec[4],xt.vec[4]
+        xf.vec[4] = xt.vec[4] # set the energy value
+        debug('ZLineMode.user_smooth',(ene0,enef))
+        return

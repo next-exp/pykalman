@@ -4,7 +4,7 @@
 Physics data and formulae for NEXT
 
 """
-from KFBase import KFMatrix, KFMatrixNull
+from KFBase import KFMatrix, KFMatrixNull,KFMatrixUnitary
 from kffilter import KFFilter
 from kfgenerator import KFGenerator
 from kfzline import KFZLine
@@ -50,21 +50,26 @@ class NEXT:
 
 # basic projection matrix
 H0 = KFMatrixNull(2,5); H0[0,0]=1; H0[1,1]=1
+H0 = KFMatrixNull(3,5); H0[0,0]=1.; H0[1,1]=1.; H0[2,4]=1.;
 
 # basic measurement variace matrix
-def V0(xres): 
+def V0(xres,eres=0.001): 
     """ creates a basic resolution matrix for mesurements
     """
-    return KFMatrix([[xres*xres,0.],[0.,xres*xres]])
+    uu = KFMatrixUnitary(3)
+    #uu = KFMatrixUnitary(2) 
+    uu[0,0]=xres*xres; uu[1,1]=xres*xres; 
+    uu[2,2]=eres*eres
+    return uu
 
 # next parameters and ms and eloss helper methods
 next0 = NEXT()
 
-def nextgenerator(next=next0,deltae=0-02):
+def nextgenerator(next=next0,deltae=0.02,emin=0.2):
     """ creates a generators of particle states with a given next configuration
     default NEXT 10 atms
     """
-    kf = KFGenerator(next.msnoiser,next.eloss,deltae=deltae)
+    kf = KFGenerator(next.msnoiser,next.eloss,deltae=deltae,emin=emin)
     return kf
 
 def nextfilter(next=next0):
@@ -75,14 +80,14 @@ def nextfilter(next=next0):
     kf = KFFilter(model=zmodel)
     return kf
 
-def simplegenerator(radlen,deltae=0.02):
+def simplegenerator(radlen,deltae=0.02,emin=0.2):
     """ creates a generator of particle states with eloss HPXe 10 atms 
     and radlen
     """
     noiser = MSNoise(radlen)
     eloss = next0.eloss
     #eloss = None
-    kf = KFGenerator(next.msnoise,next.eloss,deltae=deltae)
+    kf = KFGenerator(noiser,eloss,deltae=deltae,emin=emin)
     return kf
     
 def simplefilter(radlen):

@@ -28,13 +28,13 @@ class KFGenerator:
     it uses an msnoiser and eloss classes
     """
 
-    def __init__(self,msnoiser,eloss,deltae=0.02,nstates=500):
+    def __init__(self,msnoiser,eloss,deltae=0.02,emin=0.05):
         """ constructor of the generator with a noiser, eloss and a range for delta energy ad distance
         """
         self.msnoiser = msnoiser
         self.eloss = eloss
         self.deltae = deltae
-        self.nstates = 500
+        self.emin = emin 
         return
 
     def step(self,state0):
@@ -62,7 +62,7 @@ class KFGenerator:
         state = list(state0)
         states = [state]
         ok,ee = True,state[-1]
-        while (ok and ee>0. and len(states)<self.nstates):
+        while (ok and ee>self.emin):
             ok,state = self.step(state0)
             if (ok): states.append(state)
             state0 = list(state)
@@ -70,7 +70,7 @@ class KFGenerator:
         debug('kfgenerator.generate states ',len(states))
         return states
 
-def zsample(states,zs):
+def zsample(states,zs,epsilon=0.01):
     """ sample the states, return states at zs positions
     """
     zstates = []
@@ -97,12 +97,64 @@ def zsample(states,zs):
         #print " st1 ",st1
         #print " stz ",stz
         return stz
+    udir = +1.
     for ii in range(0,nn-1):
         st0,st1 = states[ii],states[ii+1]
         zi = getzi(st0,st1)
         if (not zi): continue
         zst =  zstate(st0,st1,zi)
+        zst = list(zst)
+        if (len(zstates)>0): 
+            zp = zstates[-1]
+            zzp,zzn = zp[2],zst[2]
+            if (zzn>zzp): udir=+1.
+            elif (zzn<zzp): udir = -1.
+            elif (zzn==zzp): zst[2]=zst[2]+udir*epsilon
         zstates.append(zst)
     debug("kfgenerator.zsample zstates ",zstates)
     return zstates
     
+def zransample(states,p=0.2):
+    """ sample random the states with a given probability
+    """
+    zs = []
+    for state in states:
+        pi = random.uniform(0.,1.)
+        if (pi<=p): zs.append(state)
+    debug("kfgenerator.zrunsample zstates ",zstates)
+    return zs
+
+def zavesample(states,n=4):
+    """ sample the states making the average
+    """
+    zs = []
+    m = int(len(states)/n)
+    for i in range(m):
+        st0 = [0,0,0,0,0,0,0]
+        for k in range(n):
+            kk = n*i+k
+            for ii in range(7):
+                st0[ii] += states[kk][ii]
+        st0 = map(lambda xi: xi/n,st0)
+        zs.append(st0)
+    debug("kfgenerator.zavesample zstates ",zs)
+    return zs
+    
+
+def zsegments(states):
+    """ segment the states in forward-backward segments
+    """
+    segs = []
+    def iturn(states):
+        udir = states[0][5]
+        for i in range(len(states)):
+            fx = states[i][5]*udir
+            if (fx<0): return i
+        return i
+    while (len(states)>2):
+        i = iturn(states)
+        seg = states[:i]
+        segs.append(seg)
+        states = states[i:]
+    debug('kfgenerator.zsegments ',(len(segs),segs))
+    return segs
