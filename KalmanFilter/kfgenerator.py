@@ -158,3 +158,29 @@ def zsegments(states):
         states = states[i:]
     debug('kfgenerator.zsegments ',(len(segs),segs))
     return segs
+
+def zrunsegments(nodes):
+    """ segment the hits, states, nodes according with z
+    """
+    segs = []  
+    def iturn(nodes):
+        z0 = nodes[0].zrun
+        zi = nodes[1].zrun
+        udir = (zi-z0)
+        if (udir == 0): return 1
+        udir = udir/abs(zi-z0)
+        for i in range(1,len(nodes)):
+            zi = nodes[i].zrun
+            d = (zi-z0)*udir
+            if (d<=0.): return i
+            z0 = zi
+        return i
+    while (len(nodes)>2):
+        i = iturn(nodes)
+        seg = nodes[:i]
+        segs.append(seg)
+        nodes = nodes[i:]
+    #for seg in segs:
+    #    print ' zrunsegments ',map(lambda nd: nd.zrun,seg)
+    debug('kfzline.zrunsegments ',(len(segs),segs))
+    return segs   

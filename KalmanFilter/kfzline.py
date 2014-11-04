@@ -42,7 +42,6 @@ def zstate(ustate):
     debug('zsstate ',(ustate,zst))
     return zst
 
-
 class KFZLine(KFModel):
     """ StraightLine propagation of a ZState
     """
@@ -141,21 +140,23 @@ class KFZLine(KFModel):
         return F
 
     def user_filter(self,node):
-        if (not 'true' in node.states.keys()): return
+        #if (not 'true' in node.states.keys()): return
+        #xt = node.getstate('true')
+        #ene0 = xt.vec[4]
         if (not 'filter' in node.states.keys()): return
         xf = node.getstate('filter')
-        xt = node.getstate('true')
-        ene0,enef = xf.vec[4],xt.vec[4]
-        xf.vec[4] = xt.vec[4] # set the energy value
-        debug('ZLineMode.user_filter',(ene0,enef))
+        ene0 = node.hit.ene
+        xf.vec[4] = ene0 # set the energy value
+        debug('ZLineMode.user_filter',ene0)
         return
 
     def user_smooth(self,node):
-        if (not 'true' in node.states.keys()): return
+        #if (not 'true' in node.states.keys()): return
+        #xt = node.getstate('true')
+        #ene0 = xt.vec[4]
         if (not 'smooth' in node.states.keys()): return
         xf = node.getstate('smooth')
-        xt = node.getstate('true')
-        ene0,enef = xf.vec[4],xt.vec[4]
-        xf.vec[4] = xt.vec[4] # set the energy value
-        debug('ZLineMode.user_smooth',(ene0,enef))
+        ene0 = node.hit.ene
+        xf.vec[4] = ene0 # set the energy value
+        debug('ZLineMode.user_smooth',ene0)
         return

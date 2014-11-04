@@ -5,10 +5,12 @@ import random
 from KFBase import KFVector, KFMatrix, KFMatrixNull, KFMatrixUnitary
 from kfnext import NEXT, nextgenerator, nextfilter, V0, H0
 from kfnext import simplegenerator, simplefilter
-from kfgenerator import zsample,zransample,zavesample,zsegments
+from kfgenerator import zsample,zransample,zavesample,zsegments,zrunsegments
 from kffilter import randomnode, KFData
 from kfzline import zstate
 from math import *
+from troot import tcanvas
+from copy import deepcopy
 
 """
 
@@ -101,27 +103,6 @@ class GenerateDigits3(IAlg):
         return ok
 
 
-class GenerateSegments(IAlg):
-
-    def define(self):
-        self.unique = False
-
-    def execute(self):
-        states = self.evt['sim/digits']     
-        if (not states): return False
-        if (self.unique):
-            segments = [states,]
-        else:
-            segments = zsegments(states)
-        print " # of segments ",len(segments)
-        ok = (len(segments)>=1)
-        if (ok): self.evt['sim/segments'] = segments
-        #for seg in segments:
-        #    print " segment: "
-        #    for state in seg: print state
-        return ok
-
-
 class GenerateNodes(IAlg):
 
     def define(self):
@@ -134,21 +115,41 @@ class GenerateNodes(IAlg):
         return True
 
     def execute(self):
-        segments = self.evt['sim/segments']   
-        if (not segments): return False
-        segnodes = []
-        for seg in segments:
-            if (len(seg)<=self.minodes): continue
-            zstates = map(zstate,seg)
-            nodes = map(lambda st: randomnode(st,H0,self.V),zstates)
-            segnodes.append(nodes)
-        ok = (len(segnodes)>0)
-        if ok: self.evt['sim/segnodes'] = segnodes
-        #for znode in segnodes:
-        #    print ' segnode ',len(znode)
-        #    print ' zruns ',map(lambda nd: nd.hit.zrun,znode)
+        digits = self.evt['sim/digits']   
+        if (not digits): return False
+        zstates = map(zstate,digits)
+        nodes = map(lambda st: randomnode(st,H0,self.V),zstates)
+        de = digits[0][-1]+digits[-1][-1] # reverse the energy
+        for node in nodes: 
+            node.hit.ene = node.getstate('true').vec[4]
+            node.hit.rene = de-node.hit.ene
+        ok = (len(nodes)>0)
+        if ok: self.evt['sim/nodes'] = nodes
+        #print ' nodes zrun ',map(lambda nd: nd.zrun,nodes)
+        #print ' nodes ene  ',map(lambda nd: nd.hit.ene,nodes)        
+        #print ' nodes rene ',map(lambda nd: nd.hit.rene,nodes)        
         return ok
 
+class GenerateSegments(IAlg):
+
+    def define(self):
+        self.unique = False
+        self.minnodes = 3
+        return
+
+    def execute(self):
+        nodes = self.evt['sim/nodes']
+        if (not nodes): return False
+        if (self.unique):
+            segnodes = [nodes,]
+        else:
+            segnodes = zrunsegments(nodes)
+            segnodes = filter(lambda seg: len(seg)>=self.minnodes,segnodes)
+        #for seg in segnodes:
+        #    print 'zrun for segment ',map(lambda nd: nd.zrun,seg)
+        ok = (len(segnodes)>0)
+        if ok: self.evt['sim/segnodes']=segnodes
+        return ok
 
 class GenenerateKFNodes(IAlg):
     """ Algorithm to generate SL tracks, fit them with KFNextFilter and fill histos
@@ -203,6 +204,7 @@ class KFFit(IAlg):
         self.pgas = 10.
         self.radlen = -1
         self.E0 = 2.5
+        self.onlyfirst = True
         return
 
 
@@ -240,6 +242,7 @@ class KFFit(IAlg):
     def execute(self):
         segnodes = self.evt['sim/segnodes']
         if (not segnodes): return False
+        if (self.onlyfirst): segnodes = segnodes[:1]
         kfs = []
         for nodes in segnodes:
             print ' nodes to fit ',len(nodes)
@@ -248,6 +251,71 @@ class KFFit(IAlg):
         ok = (len(kfs)>0)
         if (ok): self.evt['rec/kfs']=kfs
         print " segments fits ",len(kfs)
+        return ok
+
+class KFFit2(IAlg):
+    """ Algorithm to generate SL tracks, fit them with KFNextFilter and fill histos
+    """
+
+    def define(self):
+        self.pgas = 10.
+        self.radlen = -1
+        self.E0 = 2.5
+        self.onlyfirst = True
+        return
+
+
+    def fitsegment(self,nodes):
+        if (len(nodes)<=2): return 
+        next = NEXT(self.pgas)
+        kf = nextfilter(next)
+        if (self.radlen>0.):
+            self.msg.info('KF Simple radlen',self.radlen)
+            kf = simplefilter(self.radlen)
+        #kf = simplefilter(self.radlen)
+        kf.clear()
+        kf.setnodes(nodes)
+        print " fitsegment nodes ",len(kf.nodes) 
+
+        # fit!
+        x0true = nodes[0].getstate('true').vec
+        x0 = KFVector(x0true)
+        z0 = nodes[0].zrun
+        dz = nodes[1].zrun-z0
+        if (dz==0.): 
+            print ' Fit failed, not valid input nodes ',z0,dz
+            return False,None
+        zdir = dz/abs(dz)
+        C1 = 1.*KFMatrixUnitary(5)
+        state0 = KFData(x0,C1,z0-0.1*zdir,pars={'uz':zdir})
+        ok,fchi,schi = kf.fit(state0)  
+        if (not ok):
+            print " Fit Failed! "
+            return False,None
+        print ' Fit chi2 ',dz,fchi,schi
+        return ok,kf
+
+    def execute(self):
+        segnodes = self.evt['sim/segnodes']
+        if (not segnodes): return False
+        kfs = []
+        seg1 = segnodes[0]
+        seg2 = segnodes[-1]
+        ok1,kf1 = self.fitsegment(seg1)
+        if ok1: 
+            kfs.append(deepcopy(kf1))
+            print " forward ",ok1,kf1.cleanchi2('filter'),kf1.cleanchi2('smooth')
+        seg2.reverse()
+        for nd in seg2: nd.hit.ene = nd.hit.rene
+        #for nd in seg2: print ' z ene ',nd.zrun,nd.hit.ene
+        ok2,kf2 = self.fitsegment(seg2)
+        if ok2: 
+            kfs.append(deepcopy(kf2))
+            print " reverse ",ok2,kf2.cleanchi2('filter'),kf2.cleanchi2('smooth')
+        ok = (len(kfs)>=2)
+        if (ok): self.evt['rec/kfs']=kfs
+        print " reverse fit - filter ",len(kfs),kfs[0].chi2('filter'),kfs[1].chi2('filter')
+        print " reverse fit - smooth ",len(kfs),kfs[0].chi2('smooth'),kfs[1].chi2('smooth')
         return ok
 
 #--------- histogramming!!
@@ -461,6 +529,7 @@ class HistosKFFit(IAlg):
 
     def initialize(self):
        
+
         self.root.h1d(self.prefix+'nfits',10,0.,10)
 
         self.root.h1d(self.prefix+'nhits',self.nhits+1,0.,self.nhits+1)       
@@ -558,6 +627,148 @@ class HistosKFFit(IAlg):
     
         return True
 
+class AnaKFFit(IAlg):
+
+    def initialize(self):
+
+        for i in range(2):
+            self.root.h1d('an'+str(i)+'_nnodes',30,0,30.)
+            self.root.h1d('an'+str(i)+'_schi2',100,0,100.)
+            self.root.h1d('an'+str(i)+'_schi2ndf',100,0,10.)
+            self.root.h2d('an'+str(i)+'_schi2nodes',30,0.,30.,10,0.,100.)
+            self.root.h2d('an'+str(i)+'_schi2ndfnodes',30,0.,30.,10,0.,10.)
+            self.root.h1d('an'+str(i)+'_fchi2',100,0,100.)
+            self.root.h1d('an'+str(i)+'_fchi2ndf',100,0,10.)
+            self.root.h2d('an'+str(i)+'_fchi2nodes',30,0.,30.,10,0.,100.)
+            self.root.h2d('an'+str(i)+'_fchi2ndfnodes',30,0.,30.,10,0.,10.)
+        return True
+
+    def execute(self):
+        kfs = self.evt['rec/kfs']
+        if (not kfs): return False
+        for i in range(len(kfs)):
+            kf = kfs[i]
+            nn = len(kf.nodes); 
+            schi2 = kf.cleanchi2('smooth'); fchi2 = kf.cleanchi2('filter')
+            schi2ndf = schi2/(2.*nn-4.); fchi2ndf = fchi2/(2.*nn-4.)
+            print 'ana i nn fchi schi ',nn,fchi2ndf,schi2ndf
+            self.root.fill('an'+str(i)+'_nnodes',nn)
+            self.root.fill('an'+str(i)+'_schi2',schi2)
+            self.root.fill('an'+str(i)+'_schi2ndf',schi2ndf)
+            self.root.fill('an'+str(i)+'_schi2nodes',nn,schi2)
+            self.root.fill('an'+str(i)+'_schi2ndfnodes',nn,schi2ndf)
+            self.root.fill('an'+str(i)+'_fchi2',fchi2)
+            self.root.fill('an'+str(i)+'_fchi2ndf',fchi2ndf)
+            self.root.fill('an'+str(i)+'_fchi2nodes',nn,fchi2)
+            self.root.fill('an'+str(i)+'_fchi2ndfnodes',nn,fchi2ndf)
+        return True
+
+class AnaKFFit2(IAlg):
+
+    def define(self):
+        self.prefix = 'anrev'
+        self.nhits = 40
+        self.chi2max = 30.
+        self.nseg = 2
+        return
+
+    def initialize(self):
+
+        for i in range(self.nseg):
+            self.root.h1d(self.prefix+str(i)+'_fnodes',50,0,50.)
+            self.root.h1d(self.prefix+str(i)+'_snodes',50,0,50.)
+            self.root.h1d(self.prefix+str(i)+'_badfnodes',15,0,15.)
+            self.root.h1d(self.prefix+str(i)+'_badsnodes',15,0,15.)
+            self.root.h1d(self.prefix+str(i)+'_fchi2ndf',100,0.,10.)
+            self.root.h1d(self.prefix+str(i)+'_schi2ndf',100,0.,10.)
+            self.root.hprf(self.prefix+str(i)+'_fchi2',self.nhits,0,self.nhits,0.,self.chi2max)
+            self.root.hprf(self.prefix+str(i)+'_schi2',self.nhits,0,self.nhits,0.,self.chi2max)
+            self.root.h2d(self.prefix+str(i)+'_fchi2i',self.nhits,0,self.nhits,50,0.,self.chi2max)
+            self.root.h2d(self.prefix+str(i)+'_schi2i',self.nhits,0,self.nhits,50,0.,self.chi2max)
+        return True
+
+    def execute(self):
+        kfs = self.evt['rec/kfs']
+        if (not kfs): return False
+        #print " ana2 ",kfs[0].chi2('filter'),kfs[1].chi2('filter')
+        #print " ana2 ",kfs[0].chi2('smooth'),kfs[1].chi2('smooth')
+        i = -1
+        for kf in kfs:
+            i+=1
+            print ' ana 2 ',kf.chi2('filter'),kf.chi2('smooth')
+            nn = len(kf.nodes); 
+            ns,schi2 = kf.cleanchi2('smooth',self.chi2max); 
+            nf,fchi2 = kf.cleanchi2('filter',self.chi2max)
+            schi2ndf = schi2/(2.*ns-4.); fchi2ndf = fchi2/(2.*nf-4.)
+            print ' ana2 i nn fchi schi ',i,nf,ns,fchi2ndf,schi2ndf
+            self.root.fill(self.prefix+str(i)+'_fnodes',nf)
+            self.root.fill(self.prefix+str(i)+'_badfnodes',nn-nf)
+            self.root.fill(self.prefix+str(i)+'_snodes',ns)
+            self.root.fill(self.prefix+str(i)+'_badsnodes',nn-ns)
+            self.root.fill(self.prefix+str(i)+'_schi2ndf',schi2ndf)
+            self.root.fill(self.prefix+str(i)+'_fchi2ndf',fchi2ndf)
+            for j,node in enumerate(kf.nodes):
+                fchi,schi = node.getchi2('filter'),node.getchi2('smooth')
+                if (fchi<self.chi2max): self.root.fill(self.prefix+str(i)+'_fchi2', j,fchi)
+                if (schi<self.chi2max): self.root.fill(self.prefix+str(i)+'_schi2', j,schi)
+                if (fchi<self.chi2max): self.root.fill(self.prefix+str(i)+'_fchi2i', j,fchi)
+                if (schi<self.chi2max): self.root.fill(self.prefix+str(i)+'_schi2i', j,schi)
+        return True
+
+
+class EventDisplay(IAlg):
+
+    def define(self):
+        self.prefix = 'ed'
+        self.nhits = 100
+        self.ievt = 0
+        return
+
+    def execute(self):
+        kfs = self.evt['rec/kfs']
+        if (not kfs): return False
+        self.ievt+=1
+
+        for kf in kfs:
+
+            self.root.h1d(self.prefix+'_z',self.nhits,0,self.nhits)
+            self.root.h1d(self.prefix+'_e',self.nhits,0,self.nhits)
+            self.root.h1d(self.prefix+'_fchi',self.nhits,0,self.nhits)
+            self.root.h1d(self.prefix+'_schi',self.nhits,0,self.nhits)
+            self.root.h1d(self.prefix+'_xpull',self.nhits,0,self.nhits)
+            self.root.h1d(self.prefix+'_ypull',self.nhits,0,self.nhits)
+            self.root.h1d(self.prefix+'_txpull',self.nhits,0,self.nhits)
+            self.root.h1d(self.prefix+'_typull',self.nhits,0,self.nhits)
+            
+            nn = len(kf.nodes)
+            for i in range(nn):
+                node = kf.nodes[i]
+                rx,ry,rtx,rty,rene = node.getstate('true').vec
+                mtype = 'smooth'
+                x,sx = node.param(mtype,0)
+                y,sy = node.param(mtype,1)
+                tx,stx = node.param(mtype,2)
+                ty,sty = node.param(mtype,3)
+                ee,see = node.param(mtype,4)
+                self.root.fill(self.prefix+'_z',i,node.zrun)
+                self.root.fill(self.prefix+'_e',i,rene)
+                self.root.fill(self.prefix+'_fchi',i,node.getchi2('filter'))
+                self.root.fill(self.prefix+'_schi',i,node.getchi2('smooth'))
+                self.root.fill(self.prefix+'_xpull',i,(x-rx)/sx)
+                self.root.fill(self.prefix+'_ypull',i,(y-ry)/sy)
+                self.root.fill(self.prefix+'_txpull',i,(tx-rtx)/stx)
+                self.root.fill(self.prefix+'_typull',i,(ty-rty)/sty)
+            
+            names = map(lambda x: self.prefix+'_'+x,['z','e','fchi','schi','xpull','ypull','txpull','typull'])
+            hs = map(lambda name: self.root.get(name),names)
+
+            t0 = tcanvas(hs[:4],nx=2,name='evtdis_chi2_evt'+str(self.ievt))
+            t1 = tcanvas(hs[4:],nx=2,name='evtdis_pull_evt'+str(self.ievt))
+            raw_input('press key ')    
+
+        return True
+
+
 #-----------------------------
 # Alex
 #-----------------------------
@@ -565,7 +776,7 @@ class HistosKFFit(IAlg):
 def ck_gen():
 
     alex = Alex()
-    alex.nevts = 100
+    alex.nevts = 1000
     root = ROOTSvc('root','akfnext.root')
     alex.addsvc(root)
 
@@ -589,37 +800,42 @@ def ck_gen():
     #agendigits.nave = 10
     alex.addalg(agendigits)  
 
-    #hisgendigits = HistosGenerateDigits('hisgendigits')     
-    #hisgen.prefix = 'hd_'
-    #hisgendigits.imports.append('root')
-    #alex.addalg(hisgendigits)
+    agennodes = GenerateNodes('agennodes')
+    alex.addalg(agennodes)
 
     agensegments = GenerateSegments('agensegments')
-    agensegments.unique = False
+    agensegments.unique = True
+    agensegments.minnodes = 4
     alex.addalg(agensegments)
-
-    hisgensegments = HistosGenerateSegments('hisgensegments')
-    hisgensegments.imports.append('root')
-    alex.addalg(hisgensegments)
-
-    agennodes = GenerateNodes('agennodes')
-    agennodes.minodes = 10
-    alex.addalg(agennodes)
 
     #hisgennodes = HistosGenerateNodes('hisgennodes')
     #hisgennodes.imports.append('root')
     #alex.addalg(hisgennodes)
 
-    akf = KFFit('akf')
+    akf = KFFit2('akf')
     #akf.radlen = radlen
+    #akf.onlyfirst = True
     alex.addalg(akf)
 
-    hisakf = HistosKFFit('hisakf')
-    hisakf.imports.append('root')
-    hisakf.forward = True
-    hisakf.backward = True
-    hisakf.emin = .5
-    alex.addalg(hisakf)
+    #hisakf = HistosKFFit('hisakf')
+    #hisakf.imports.append('root')
+    #hisakf.forward = True
+    #hisakf.backward = True
+    #hisakf.emin = .5
+    #alex.addalg(hisakf)
+
+    hisakf2 = AnaKFFit2('hisakf2')
+    hisakf2.imports.append('root')
+    alex.addalg(hisakf2)
+
+    #anakffit = AnaKFFit('anakffit')
+    #anakffit.imports.append('root')
+    #alex.addalg(anakffit)
+
+    #evtdis = EventDisplay('evtdis')
+    #evtdis.imports.append('root')
+    #evtdis.nhits = 40
+    #alex.addalg(evtdis) 
 
     alex.run()    
     

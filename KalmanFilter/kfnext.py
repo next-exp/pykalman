@@ -50,16 +50,16 @@ class NEXT:
 
 # basic projection matrix
 H0 = KFMatrixNull(2,5); H0[0,0]=1; H0[1,1]=1
-H0 = KFMatrixNull(3,5); H0[0,0]=1.; H0[1,1]=1.; H0[2,4]=1.;
+#H0 = KFMatrixNull(3,5); H0[0,0]=1.; H0[1,1]=1.; H0[2,4]=1.;
 
 # basic measurement variace matrix
 def V0(xres,eres=0.001): 
     """ creates a basic resolution matrix for mesurements
     """
-    uu = KFMatrixUnitary(3)
-    #uu = KFMatrixUnitary(2) 
+    #uu = KFMatrixUnitary(3)
+    uu = KFMatrixUnitary(2) 
     uu[0,0]=xres*xres; uu[1,1]=xres*xres; 
-    uu[2,2]=eres*eres
+    #uu[2,2]=eres*eres
     return uu
 
 # next parameters and ms and eloss helper methods

@@ -362,6 +362,13 @@ class KFFilter(object):
         debug("kfilter.chi2 ",(name,chi))
         return chi
 
+    def cleanchi2(self,name,chi2cut=30.):
+        chis = map(lambda node: node.getchi2(name),self.nodes)
+        chis = filter(lambda ch: ch<chi2cut,chis)        
+        nn = len(chis); chi = sum(chis)
+        debug("kfilter.chi2 ",(name,chi,nn))
+        return nn,chi
+
     def __len__(self): 
         """ number of nodes
         """
