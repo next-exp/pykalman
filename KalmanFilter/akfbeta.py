@@ -636,7 +636,10 @@ class HistosScanNodes(IAlg):
             print ' inode rchib ',inode,rchib
             fchib = chiblocks(fkf.nodes)
             print ' inode fchib ',inode,fchib
-            rchib,fchib = rchib[0],fchib[0]
+            if (len(rchib)>0): rchib=rchib[0]
+            else: rchib=0.
+            if (len(fchib)>0): fchib=fchib[0]
+            else: fchib=0.
             print ' inode chi2 ',inode,rchi,fchi
             print ' inode ac   ',inode,rac,fac
             print ' inode chib   ',inode,rchib,fchib
