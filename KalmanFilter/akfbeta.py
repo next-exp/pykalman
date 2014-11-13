@@ -35,8 +35,10 @@ def genele(ene = 2.5):
 
 def genbeta(ene = 2.5):
     emin = 0.512
-    e0 = random.uniform(emin,ene-emin)
-    e1 = ene-e0
+    ei0 = random.uniform(emin,ene-emin)
+    ei1 = ene-ei0
+    e0 = min(ei0,ei1)
+    e1 = max(ei0,ei1)
     states1 = genele(e0)
     states2 = genele(e1)
     # print 'genbeta-states1 ',states1
@@ -108,6 +110,16 @@ def fitnodes(nodes):
     kf = deepcopy(gnextfit)
     #print 'fitnodes ',cc    
     return cc,kf
+
+def chiblocks(nodes,maxchi=5,mtype='filter',nblock=5):
+    chis = map(lambda nd: nd.getchi2(mtype),nodes)
+    chis = filter(lambda chi: chi<maxchi,chis)
+    nn = len(chis)
+    nb = int(nn/(1.*nblock))
+    bchis = map(lambda i: sum(chis[i*nblock:(i+1)*nblock])/(2.*nblock-4.),range(nb))
+    print 'chiblocks ',nn,nb,bchis
+    #chis.append(sum(chi2[nblock*nb:])/(2*nblock-4))
+    return bchis
 
 def chindf(nodes,maxchi=30.,mtype='filter'):
     chi = map(lambda nd: nd.getchi2(mtype),nodes)
@@ -591,6 +603,10 @@ class HistosScanNodes(IAlg):
         self.root.h2d(self.prefix+'fchi',60,-self.inod,self.inod,40,0.,10.)
         self.root.h2d(self.prefix+'rchi',60,-self.inod,self.inod,40,0.,10.)
         self.root.h2d(self.prefix+'chi',60,-self.inod,self.inod,40,0.,10.)
+        self.root.h2d(self.prefix+'fchib',60,-self.inod,self.inod,40,0.,10.)
+        self.root.h2d(self.prefix+'rchib',60,-self.inod,self.inod,40,0.,10.)
+        self.root.h2d(self.prefix+'chib',60,-self.inod,self.inod,40,0.,10.)
+
 
         self.root.hprf(self.prefix+'faci_pf',60,-self.inod,self.inod,-2.,2.)
         self.root.hprf(self.prefix+'raci_pf',60,-self.inod,self.inod,-2.,2.)
@@ -598,6 +614,9 @@ class HistosScanNodes(IAlg):
         self.root.hprf(self.prefix+'fchi_pf',60,-self.inod,self.inod,0.,10.)
         self.root.hprf(self.prefix+'rchi_pf',60,-self.inod,self.inod,0.,10.)
         self.root.hprf(self.prefix+'chi_pf',60,-self.inod,self.inod,0.,10.)
+        self.root.hprf(self.prefix+'fchib_pf',60,-self.inod,self.inod,0.,10.)
+        self.root.hprf(self.prefix+'rchib_pf',60,-self.inod,self.inod,0.,10.)
+        self.root.hprf(self.prefix+'chib_pf',60,-self.inod,self.inod,0.,10.)
         return True
 
     def execute(self):
@@ -613,13 +632,23 @@ class HistosScanNodes(IAlg):
             fac = achi(fkf.nodes)[0]
             rchi = chindf(rkf.nodes)
             fchi = chindf(fkf.nodes)
-            print ' inode ',inode,rchi,fchi,rac,fac
+            rchib = chiblocks(rkf.nodes)
+            print ' inode rchib ',inode,rchib
+            fchib = chiblocks(fkf.nodes)
+            print ' inode fchib ',inode,fchib
+            rchib,fchib = rchib[0],fchib[0]
+            print ' inode chi2 ',inode,rchi,fchi
+            print ' inode ac   ',inode,rac,fac
+            print ' inode chib   ',inode,rchib,fchib
             self.root.fill(self.prefix+'faci',inode,fac)
             self.root.fill(self.prefix+'raci',inode,rac)
             self.root.fill(self.prefix+'aci',inode,fac+rac)
             self.root.fill(self.prefix+'fchi',inode,fchi)
             self.root.fill(self.prefix+'rchi',inode,rchi)
             self.root.fill(self.prefix+'chi',inode,0.5*(rchi+fchi))
+            self.root.fill(self.prefix+'fchib',inode,fchib)
+            self.root.fill(self.prefix+'rchib',inode,rchib)
+            self.root.fill(self.prefix+'chib',inode,0.5*(rchib+fchib))
 
             self.root.fill(self.prefix+'faci_pf',inode,fac)
             self.root.fill(self.prefix+'raci_pf',inode,rac)
@@ -627,6 +656,10 @@ class HistosScanNodes(IAlg):
             self.root.fill(self.prefix+'fchi_pf',inode,fchi)
             self.root.fill(self.prefix+'rchi_pf',inode,rchi)
             self.root.fill(self.prefix+'chi_pf',inode,0.5*(rchi+fchi))
+            self.root.fill(self.prefix+'fchib_pf',inode,fchib)
+            self.root.fill(self.prefix+'rchib_pf',inode,rchib)
+            self.root.fill(self.prefix+'chib_pf',inode,0.5*(rchib+fchib))
+
         return True
 
 
@@ -690,7 +723,7 @@ class PullEventDisplay(IAlg):
 def dovertex():
 
     alex = Alex()
-    alex.nevts = 1000
+    alex.nevts = 1
     root = ROOTSvc('root','akfbeta.root')
     alex.addsvc(root)
 
