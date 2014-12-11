@@ -22,6 +22,21 @@ def debug(comment,arg=''):
 def warning(comment,arg=''):
     if (WARNING): print "WARNING ",comment,arg
 
+def energy(p,m=0.511):
+    ene = sqrt(p*p+m*m)
+    return ene
+
+def kinenergy(p,m=0.511):
+    """ return the kinetic energy for a momentum p """
+    ene = energy(p,m)
+    te = ene-m
+    return te
+
+def kinmomentum(kene,m=0.511):
+    ene = kene+m
+    p = sqrt(ene*ene-m*m)
+    return p
+
 def iszstate(state):
     """ return true if this state is a ZLine state 
     """
@@ -80,7 +95,8 @@ class KFZLine(KFModel):
         #ok = ok and (state.uz*dz>0.)
         ene = state.vec[-1]
         if (self.noiser):
-            ok = ok and self.noiser.validstep(ene,abs(dz))
+            pp = kinmomentum(ene)
+            ok = ok and self.noiser.validstep(pp,abs(dz))
         if (self.eloss):
             ok = ok and  self.eloss.validstep(ene,abs(dz))
         if (not ok):
@@ -91,7 +107,8 @@ class KFZLine(KFModel):
     def QMatrix(self,x,zdis):
         """ Returns the Q matrix for a deltaz
         """ 
-        x0,y0,tx,ty,p = x
+        x0,y0,tx,ty,ene0 = x
+        p = kinmomentum(ene0)
         norm = 1.+tx*tx+ty*ty
         cost = sqrt(1./norm)
         assert cost != 0,' ZLineModel.QMatrix cost = 0!'
@@ -133,7 +150,7 @@ class KFZLine(KFModel):
             ds = abs(dz)*icost
             dene,ds = self.eloss.deltae(ene0,ds)
             rat = (ene0-dene)/ene0
-            if (rat<=0): warning('ZlineModel.FMatrix e-ratio ',rat)
+            #if (rat<=0): warning('ZlineModel.FMatrix e-ratio ',rat)
             F[4,4] = max(rat,0.01)
         F[4,4]=1.
         debug('ZLineMode.FMatrix x,dz,F ',(x,dz,F))

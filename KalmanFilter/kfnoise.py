@@ -26,6 +26,21 @@ def debug(comment,arg=''):
 def warning(comment,arg=''):
     if (WARNING): print comment,arg
 
+def energy(p,m=0.511):
+    ene = sqrt(p*p+m*m)
+    return ene
+
+def kinenergy(p,m=0.511):
+    """ return the kinetic energy for a momentum p """
+    ene = energy(p,m)
+    te = ene-m
+    return te
+
+# Be careful with energy, kin-energy and p
+# MS works with p and energy
+# Eloss works with kin-energy
+# Qbb works with kin-energy    
+
 def thetams(p,dis,X0,mass=0.511):
     """ return the theta MS angle for a particle with mass, momentum (p) 
     that travel a distance (dis) in a radiation length X0

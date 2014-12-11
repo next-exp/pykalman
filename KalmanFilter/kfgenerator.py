@@ -22,6 +22,21 @@ def debug(comment,arg=''):
 def warning(comment,arg=''):
     if (WARNING): print "WARNING ",comment,arg
 
+def energy(p,m=0.511):
+    ene = sqrt(p*p+m*m)
+    return ene
+
+def kinenergy(p,m=0.511):
+    """ return the kinetic energy for a momentum p """
+    ene = energy(p,m)
+    te = ene-m
+    return te
+
+def kinmomentum(kene,m=0.511):
+    ene = kene+m
+    p = sqrt(ene*ene-m*m)
+    return p
+
 class KFGenerator:
     """ Generator of particles states, a (x,y,z,ux,uy,ux,ene) list, 
     starts from a particle state seed and makes steps of energy loss
@@ -49,7 +64,8 @@ class KFGenerator:
         #print ' u0 ',uv0
         #print ' ee0 ',ee0
         #print ' de, ds ',de,ds
-        xvf,uvf = self.msnoiser.XUrandom(ee0,ds,xv0,uv0)
+        pp = kinmomentum(ee0)
+        xvf,uvf = self.msnoiser.XUrandom(pp,ds,xv0,uv0)
         x,y,z=xvf; ux,uy,uz=uvf
         ee = ee0-de
         state = [x,y,z,ux,uy,uz,ee]
@@ -70,7 +86,45 @@ class KFGenerator:
         debug('kfgenerator.generate states ',len(states))
         return states
 
-def zsample(states,zs,epsilon=0.01):
+def stateatz(states,z):
+    def getzi(st0,st1):
+        x0,y0,z0,ux0,uy0,uz0,ee0=st0
+        x1,y1,z1,ux1,uy1,uz1,ee1=st1
+        ok = False
+        if (z0<=z and z<z1): ok =True
+        if (z0>=z and z>z1): ok = True
+        if (ok): return z
+        return None
+    def zstate(st0,st1,z):
+        x0,y0,z0,ux0,uy0,uz0,ee0=st0
+        x1,y1,z1,ux1,uy1,uz1,ee1=st1
+        if (z-z0 == 0.): return st0
+        dz = (z-z0)/(z1-z0)
+        x = x0+(x1-x0)*dz
+        y = y0+(y1-y0)*dz
+        ux = ux0+(ux1-ux0)*dz
+        uy = uy0+(uy1-uy0)*dz
+        uz = uz0+(uz1-uz0)*dz
+        uu = sqrt(ux*ux+uy*uy+uz*uz)
+        ux=ux/uu;uy=uy/uu;uz=uz/uu
+        ee = ee0-(ee0-ee1)*(z-z0)/(z1-z0)
+        dene = ee-ee0
+        stz = [x,y,z,ux,uy,uz,ee]
+        #print " st0 ",st0
+        #print " st1 ",st1
+        #print " stz ",stz
+        return stz
+    nn = len(states)
+    for ii in range(nn-1):
+        st0,st1 = states[ii],states[ii+1]
+        zi = getzi(st0,st1)
+        if (not zi): continue
+        zst =  zstate(st0,st1,zi)
+    debug("kfgenerator.stateatz state ",zst)
+    return zst
+
+
+def zrunsample(states,zs,epsilon=0.01):
     """ sample the states, return states at zs positions
     """
     zstates = []
@@ -91,8 +145,14 @@ def zsample(states,zs,epsilon=0.01):
         x1,y1,z1,ux1,uy1,uz1,ee1=st1
         x = x0+(ux0/uz0)*(z-z0)
         y = y0+(uy0/uz0)*(z-z0)
+        ux = ux0+ux1*(z-z0)/(z1-z0)
+        uy = uy0+uy1*(z-z0)/(z1-z0)
+        uz = uz0+uz1*(z-z0)/(z1-z0)
+        uu = sqrt(ux*ux+uy*uy+uz*uz)
+        ux=ux/uu;uy=uy/uu;uz=uz/uu
         ee = ee0-(ee0-ee1)*(z-z0)/(z1-z0)
-        stz = (x,y,z,ux0,uy0,uz0,ee)
+        dene = ee-ee0
+        stz = (x,y,z,ux,uy,uz,ee)
         #print " st0 ",st0
         #print " st1 ",st1
         #print " stz ",stz
@@ -124,7 +184,7 @@ def zransample(states,p=0.2):
     debug("kfgenerator.zrunsample zstates ",zstates)
     return zs
 
-def zavesample(states,n=4):
+def zavesample_old(states,n=4):
     """ sample the states making the average
     """
     zs = []
@@ -140,6 +200,25 @@ def zavesample(states,n=4):
     debug("kfgenerator.zavesample zstates ",zs)
     return zs
     
+def zavesample(states,n=4):
+    z0,zf = states[0],states[-1]
+    states = states[1:-1]
+    zsts = [z0]
+    ns = len(states)
+    mm = int(ns/n)
+    for i in range(mm):
+        istates = states[i*n:min((i+1)*n,ns)]
+        iz = sum(map(lambda st: st[2],istates))/len(istates)
+        izst = stateatz(istates,iz)
+        #print 'zavesamples2 i states \n'
+        #for state in istates: print '\t ',state
+        #print 'zavesamples2 i zi ',iz
+        #print 'zavesmaples2 i states ',izst
+        zsts.append(izst)
+    zsts.append(zf)
+    debug('kfgenerator.zavesamples zsts ',zsts)
+    #print 'zavesmaples2 states ',zsts
+    return zsts
 
 def zsegments(states):
     """ segment the states in forward-backward segments
@@ -184,3 +263,10 @@ def zrunsegments(nodes):
     #    print ' zrunsegments ',map(lambda nd: nd.zrun,seg)
     debug('kfzline.zrunsegments ',(len(segs),segs))
     return segs   
+
+def zedeltas(enes):
+    denes = []
+    for i in enumerate(enes[:-1]):
+        dene = enes[i+1]-ene[i]
+    denes.append(enes[-1])
+    return denes

@@ -30,6 +30,7 @@ class NEXT:
     rho0_gas = 2.6867774e19; # density of ideal gas at T=0C, P=1 atm in cm^(-3)
     NA = 6.02214179e23;    # Avogadro constant   
     XeX0 = 1530. # xenon radiation length  * pressure in cm * bar
+    XeX0 = XeX0
     Xemass_amu = 131.293;        # mass of xenon in amu
 
     #pgas = 10. # atmos
@@ -65,7 +66,7 @@ def V0(xres,eres=0.001):
 # next parameters and ms and eloss helper methods
 next0 = NEXT()
 
-def nextgenerator(next=next0,deltae=0.02,emin=0.2):
+def nextgenerator(next=next0,deltae=0.015,emin=0.05):
     """ creates a generators of particle states with a given next configuration
     default NEXT 10 atms
     """
@@ -80,7 +81,7 @@ def nextfilter(next=next0):
     kf = KFFilter(model=zmodel)
     return kf
 
-def simplegenerator(radlen,deltae=0.02,emin=0.2):
+def simplegenerator(radlen,deltae=0.02,emin=0.05):
     """ creates a generator of particle states with eloss HPXe 10 atms 
     and radlen
     """
