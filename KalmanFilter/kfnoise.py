@@ -17,8 +17,8 @@ from exceptions import ZeroDivisionError
 DEBUG = False
 WARNING = True
 
-MAXTHETA = 1e6*pi
-ENEMIN = 0.05
+MAXTHETA = float('inf')#1e6*pi
+ENEMIN = 0.0
 
 def debug(comment,arg=''):
     if (DEBUG): print comment,arg
@@ -204,7 +204,7 @@ class HPXeELoss(ELoss):
         self.rho = rho
         self.enemin=enemin
         # Read in the stopping power and interpolate.
-        xesp_tbl = np.loadtxt("xe_estopping_power_NIST.dat");
+        xesp_tbl = np.loadtxt("/home/brais/Documents/Next/pykalman/toyMC/xe_estopping_power_NIST.dat");
         self.evals = xesp_tbl[:,0]
         self.dEdxvals = xesp_tbl[:,1];
         self.evals = np.insert(self.evals,0,0.0);
@@ -213,18 +213,23 @@ class HPXeELoss(ELoss):
         # this is the dE/dx(E) function
         return 
 
-    def validstep(self,ene,ds):
+    def validstep(self,b,ds):
         """ return true is this is a valid step for this energy and distance
         """
         ok = True
         ds = abs(ds)
         de,dz = self.deltae(ene,ds)
-        if (dz+0.001<ds): ok = False
-        if (ene<self.enemin): ok = False
-        if (ene-de<=0.): ok= False
+        if (dz+0.001<ds): 
+            ok = False
+            print '1' #   ;
+        if (ene<self.enemin): 
+            ok = False
+            print '2'#    ;
+        if (ene-de<=0.): 
+            ok= False
+            print '3' #;
         if (not ok):
-            warning("HPXeEloss.validstep ene0,de,ds,ok ",(ene,de,ds,dz,ok))
-        debug("HPXeELoss.validstep ene0,de,ds,ok ",(ene,de,ds,ok))
+            debug("HPXeELoss.validstep ene0,de,ds,ok ",(ene,de,ds,ok))
         return ok
         
     def deltae(self,ene0,deltax=0.01):

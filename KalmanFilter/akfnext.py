@@ -21,7 +21,7 @@ Alex example to check KFNextFilter
 class GenerateStates(IAlg):
 
     def define(self):
-        self.pgas = 10.
+        self.pgas = 15.
         self.deltae = 0.01 # 10 keV
         self.radlen = -1
         self.E0 = 2.5
@@ -106,7 +106,7 @@ class GenerateDigits3(IAlg):
 class GenerateNodes(IAlg):
 
     def define(self):
-        self.xres = 0.1
+        self.xres = 0.1   #Resolution Change
         self.minnodes = 4
         return
 
@@ -156,10 +156,10 @@ class GenenerateKFNodes(IAlg):
     """
 
     def define(self):
-        self.pgas = 10.
+        self.pgas = 15.
         self.dz = 0.5
         self.ZZ = 30.
-        self.xres = 0.1
+        self.xres = 0.1     #Resolution Change
         self.E0 = 2.5
         return
 
@@ -201,7 +201,7 @@ class KFFit(IAlg):
     """
 
     def define(self):
-        self.pgas = 10.
+        self.pgas = 15.
         self.radlen = -1
         self.E0 = 2.5
         self.onlyfirst = True
@@ -258,7 +258,7 @@ class KFFit2(IAlg):
     """
 
     def define(self):
-        self.pgas = 10.
+        self.pgas = 15.
         self.radlen = -1
         self.E0 = 2.5
         self.onlyfirst = True

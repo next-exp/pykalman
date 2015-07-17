@@ -401,8 +401,17 @@ class KFFilter(object):
         state = state0.copy()
         ii = 0
         for node in self.nodes:
+            
             zrun = node.zrun
             ok,state,F,Q = self.model.propagate(state,zrun)
+            '''
+            try:
+                ok,state,F,Q = self.model.propagate(state,zrun)
+            except:
+                #raw_input('mieeeerda')
+                print state, zrun
+                raise KeyboardInterrupt()
+            '''
             if (not ok):
                 warning("kfilter.filter not possible to filter at ",(ii,zrun))
                 debug("kfilter.filter i,ok,chi2 ",(ii,ok,tchi2))

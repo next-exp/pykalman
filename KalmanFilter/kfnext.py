@@ -35,7 +35,7 @@ class NEXT:
 
     #pgas = 10. # atmos
     #tgas = 295.15 # Kelvin    
-    def __init__(self,pgas=10.,tgas=295.15):
+    def __init__(self,pgas=15.,tgas=295.15):
         """ constructor of next for a preasure and temperature
         it creates a MS with X0 and an ELoss for electrons
         """
@@ -66,7 +66,7 @@ def V0(xres,eres=0.001):
 # next parameters and ms and eloss helper methods
 next0 = NEXT()
 
-def nextgenerator(next=next0,deltae=0.015,emin=0.05):
+def nextgenerator(next=next0,deltae=0.005,emin=0.05):
     """ creates a generators of particle states with a given next configuration
     default NEXT 10 atms
     """

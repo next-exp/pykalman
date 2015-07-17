@@ -18,11 +18,11 @@ Each State has
 """
 
 from math import *
-from alex.ialex import IAlg
-from alex.alex import Alex
-from alex.reader import TreeReader, Reader
-from alex.rootsvc import ROOTSvc, ttree, h1d, h2d
-from alex.algorithms import Dump
+from ialex import IAlg
+from alex import Alex
+from reader import TreeReader, Reader
+from rootsvc import ROOTSvc, ttree, h1d, h2d
+from algorithms import Dump
 import agenparam
 import random
 import scipy.integrate as integrate
@@ -168,6 +168,7 @@ class TrackGen(IAlg):
         uy = map(lambda s: s[4],track.states)
         uz = map(lambda s: s[5],track.states)
         ee = map(lambda s: s[6],track.states)
+        print ee
         tup = {'x':x,'y':y,'z':z,'ux':ux,'uy':uy,'uz':uz,'ee':ee}
         self.root.fill(self.name,tup)
         return True        
@@ -199,6 +200,37 @@ class TrackRecover(IAlg):
             track.states.append(state)
         self.evt[self.opath] = track
         return True
+
+class TrackDoubleRecover(IAlg):
+    """ IAlg to recover the track from the read data and store it in the evtstore
+    """
+    
+    def define(self):
+        """ ipath: path from where to recover data
+            opath: path to store the rocovered track
+        """
+        self.ipath = 'reader' #input path of the data
+        self.opath = self.name #output path for the recover track
+        return
+
+    def execute(self):
+        """ recover the track from the data in the store
+        
+        """
+        data = self.evt.get(self.ipath)
+        if (not data): return False
+        n = len(data['ee0'])
+        track = Track()
+        for i in range(n):
+            state = (data['x0'][i],data['y0'][i],data['z0'][i],
+                     data['ux0'][i],data['uy0'][i],data['uz0'][i],data['ee0'][i],
+                     data['x1'][i],data['y1'][i],data['z1'][i],
+                     data['ux1'][i],data['uy1'][i],data['uz1'][i],data['ee1'][i])
+            self.msg.verbose(' state ',state)
+            track.states.append(state)
+        self.evt[self.opath] = track
+        return True
+
 
 class TrackHistos(IAlg):
 

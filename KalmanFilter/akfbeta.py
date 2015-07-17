@@ -6,22 +6,24 @@ The program run using the alex framework
 
 """
 
+
 from math import *
 import random
 from copy import deepcopy
+from array import array
 
-from alex.alex import IAlg
-from alex.alex import Alex
-from alex.rootsvc import ROOTSvc
+from alex import IAlg
+from alex import Alex
+from rootsvc import ROOTSvc,ttree
 
 from KFBase import KFVector, KFMatrix, KFMatrixNull, KFMatrixUnitary
 from kfnext import NEXT, nextgenerator, nextfilter, V0, H0, simplegenerator, simplefilter
 from kfgenerator import zavesample,zrunsample
 from kffilter import randomnode, KFData, KFNode
 from kfzline import zstate
-from alex.messenger import Message
-from troot import tcanvas
-
+from messenger import Message
+from ROOT import TCanvas,TPolyLine3D,TTree,TGraph
+from KFTrack import *
 
 #-------------------------------
 # Functions
@@ -29,7 +31,7 @@ from troot import tcanvas
 
 
 # set the condition of NEXT
-gpgas = 10.
+gpgas = 15.
 gnext = NEXT(gpgas)
 gnextgen = nextgenerator(gnext)
 gnextfit = nextfilter()
@@ -47,29 +49,29 @@ def genele(ene = 2.5):
     return a list of states (x,y,z,ux,uy,ux,ene), 
     where ux,uy,uz are the cos-director and ene is the kinetic energy
     """
-    theta = random.uniform(0.,pi)
+    theta = acos(random.uniform(-1.,1.))
     phi = random.uniform(0,2.*pi)
     ux,uy,uz = sin(theta)*cos(phi),sin(theta)*sin(phi),cos(theta)
     #ux,uy,uz=0.,0.,1.
     state0 = (0.,0.,0.,ux,uy,uz,ene)
     states = gnextgen.generate(state0)
-    # print 'genele-states-'states
+    #print 'genele-states-'states
     return states
 
-def genbeta(ene = 2.5, emin=0.1):
+def genbeta(ene = 2.5, emin=0.20):
     """ generate a double beta (two electrons) with total kinetic energy (ene).
     Return a list with two list of states with (x,y,z,ux,uy,uz,ene)
     where ux,uy,uz are the cos-director and ene is the kinetic energy
     """
     ei0 = random.uniform(emin,ene-emin)
-    ei0 = 1.7
     ei1 = ene-ei0
     e0 = min(ei0,ei1)
     e1 = max(ei0,ei1)
     states1 = genele(e0)
     states2 = genele(e1)
-    # print 'genbeta-states1 ',states1
-    # print 'genbeta-states2 ',states2
+    #print 'genbeta-states1 ',states1
+    #print 'genbeta-states2 ',states2
+    
     return [states1,states2]
 
 def createzdigits(states,zs):
@@ -84,11 +86,11 @@ def createzdigits(states,zs):
     #print "createzdigits denes "
     #print "createzdigits sum(denes) ",sum(denes)
     digits = map(lambda st,dene: [st[0],st[1],st[2],dene],zstates[1:],denes)
-    # print 'createzdigits digits'
-    # note that it removes the first state!
+    #print 'createzdigits digits'
+    #note that it removes the first state!
     return (digits,zstates[1:])
 
-def createhits(digits,xres=0.1):
+def createhits(digits,xres=0.1):  #Resolution Change
     """ from the list of digits (x,y,z,delta-ene), return a list of hits.
     Each hit is computed with a given resolution
     A hit is a KFData with a vector (x,y) and a cov-matrix. 
@@ -103,7 +105,7 @@ def createhits(digits,xres=0.1):
         hit = KFData(KFVector([x,y]),V,zrun=z)
         hit.dene = dene
         hits.append(hit)
-    # print 'createhits ',hits
+    #print 'createhits ',hits
     return hits
 
 def createnodes(hits,H=H0,states=None):
@@ -115,6 +117,7 @@ def createnodes(hits,H=H0,states=None):
     if (states):
         zstates = map(zstate,states)
         for i,node in enumerate(nodes):
+            #print zstates[i]
             node.setstate('true',zstates[i])
     #print "create nodes "
     return nodes
@@ -164,6 +167,7 @@ def fitnodes(nodes):
     #print ' fitnodes ',len(nodes)
     preparenodes(nodes)
     state0 = seedstate(nodes)
+    if state0 == (False,None): return (False,False,False),False
     gnextfit.clear()
     gnextfit.setnodes(nodes)
     cc = gnextfit.fit(state0)
@@ -251,12 +255,36 @@ class GenerateBeta(IAlg):
     def define(self):
         self.E0 = 2.5 # MeV
         return
+        
+    def initialize(self):
+        """ book the ntuple and put it in ROOTSvc
+        """
+        n = 492
+        labels = [('x','F',n),('y','F',n),('z','F',n),
+                  ('ux','F',n),('uy','F',n),('uz','F',n),
+                  ('ee','F',n)]
+        tree = ttree(self.name,labels)
+        self.root.put(tree)
+        return True
 
     def execute(self):
         states = [genele(self.E0),]
+        track = states[0]
+
+        x = map(lambda s: s[0],track)
+        y = map(lambda s: s[1],track)
+        z = map(lambda s: s[2],track)
+        ux = map(lambda s: s[3],track)
+        uy = map(lambda s: s[4],track)
+        uz = map(lambda s: s[5],track)
+        ee = map(lambda s: s[6],track)
+        tup = {'x':x,'y':y,'z':z,'ux':ux,'uy':uy,'uz':uz,'ee':ee}
+        self.root.fill(self.name,tup)
+
+        
         self.evt['sim/states'] = states
         val = map(lambda st: (len(st),st[0],st[-1]),states)
-        self.msg.verbose(self.name,val)
+        self.msg.verbose(self.name,val)        
         return True
 
 class GenerateDoubleBeta(IAlg):
@@ -292,12 +320,14 @@ class CreateDigits(IAlg):
     def execute(self):
         states = self.evt['sim/states']
         if (not states): return False
-        digs,zsts = [],[]
+        digs,zsts= [],[]
         for seg in states:
             dig,zst = createzdigits(seg,self.zs)
             digs.append(dig)
             zsts.append(zst)
         ok = len(digs)>0
+        #print digs
+        #print zsts
         if (ok): 
             self.evt['sim/digits']=digs
             self.evt['sim/zstates']=zsts
@@ -314,7 +344,7 @@ class CreateNodes(IAlg):
     """
 
     def define(self):
-        self.xres = 0.1
+        self.xres = 0.1             #Resolution Change
         return
 
     def execute(self):
@@ -365,22 +395,25 @@ class DoubleBetaNodes(IAlg):
     """
 
     def execute(self):
-        digs = self.evt['sim/digits']
-        zsts = self.evt['sim/zstates']
+        digs = self.evt['sim/digits'][0]
+        zsts = self.evt['sim/zstates'][0]
+#        print 'digs',len(digs),len(digs[0]),len(digs[1])#digs
         if (not digs or not zsts): return False
         #print 'digs ',len(digs),len(digs[0]),len(digs[1])
         if (len(digs)!=2): return False
-        dig = deepcopy(digs[0])
-        zst = deepcopy(zsts[0])
+        dig = deepcopy(digs[0][0][1:])
+        zst = deepcopy(zsts[0][0][1:])
         dig.reverse(); zst.reverse()
-        dig+=deepcopy(digs[1]); zst+=deepcopy(zsts[1])
+        dig+=deepcopy(digs[1][0]); zst+=deepcopy(zsts[1][0])
         #print ' digs - total ',len(dig)
+#        print 'd',len(dig),dig
         hits = [createhits(dig),]
         nods = [createnodes(hits[0],H0,zst),]
         ok = len(nods)>0
+#        print 'ok',ok
         if (ok):
-            self.evt['rec/hits/bb'] = hits
-            self.evt['rec/nodes/bb'] = nods
+            self.evt['rec/hits'] = hits
+            self.evt['rec/nodes'] = nods
         dat1 = map(lambda hit: (len(hit),hit[0]),hits)
         #dat2 = map(lambda nod: (len(nod),nod[0]),nods)
         self.msg.verbose(self.name,'hits ',dat1)
@@ -409,6 +442,80 @@ class FitNodes(IAlg):
         if (ok): self.evt[self.opath]=kfs
         vals = map(lambda kf: (kf.cleanchi2('filter'),kf.cleanchi2('smooth')),kfs)
         self.msg.info(self.name,' chi2 ',vals)
+        return ok
+
+class FitNodes2(IAlg):
+    """ Algorithm to fit the nodes
+    """
+    def Invert(self,lis):
+        m = max(lis)
+        return [m-i for i in lis]
+        
+    def Plot4D( self, x, y, z, t, markerstyle = 20, markersize = 1 ):
+        '''
+            Plot a 3D dataset (x,y,z) with an extra color coordinate (t).
+        '''
+        data = array( 'd', [0.] * 4 )
+        tree = TTree('DummyTree','DummyTree')
+        tree.Branch('xyzt', data, 'x/D:y:z:t')
+
+        for datai in zip(x,y,z,t):
+            data[0], data[1], data[2], data[3] = datai
+            tree.Fill()
+        tree.SetMarkerStyle( markerstyle )
+        tree.SetMarkerSize( markersize )
+        c = TCanvas()
+        tree.Draw('x:y:z:t','','zcol')
+        return c, tree
+        
+    def PlotTrack( self, xt, yt, zt, Et, kf, state = 'filter' ):
+        
+        xf = [ node.getstate( state ).vec[0] for node in kf.nodes ]
+        yf = [ node.getstate( state ).vec[1] for node in kf.nodes ]
+        zf = [ node.zrun for node in kf.nodes ]
+        Ef = self.Invert( [ node.getstate( state ).vec[-1] for node in kf.nodes ] )
+        chi2 = [ node.chi2[state] for node in kf.nodes ]
+        line = TPolyLine3D( len(xf), array('f',zf), array('f',yf), array('f',xf) )
+        a = self.Plot4D( xt, yt, zt, Et )
+        line.Draw('same')
+    #    cc = TCanvas()
+    #    g = Graph( range(len(xf)), chi2, markerstyle = 20 )
+    #    g.Draw('AP')
+        g, cc = 0, 0
+        return a, line,g,cc
+
+    def define(self):
+        self.path = 'rec/nodes'
+        self.opath = 'rec/kfs'
+        return True
+
+    def execute(self):
+        nodes = self.evt[self.path][0]
+#        print len(nodes),nodes[0]
+        if (not nodes): return False
+        kfs = []
+        cc,kf = fitnodes(nodes)
+        ok,fchi,schi = cc
+        self.msg.verbose(self.name,' fit ',cc)
+        #print 'ok1',ok
+        if ok: kfs.append(kf)
+        ok = len(kfs)>0
+        #print 'ok2',ok
+        if (ok): self.evt[self.opath]=kfs
+        vals = map(lambda kf: (kf.cleanchi2('filter'),kf.cleanchi2('smooth')),kfs)
+        self.msg.info(self.name,' chi2 ',vals)
+#       print kfs
+        #plot 
+        if not ok:
+            return ok
+            
+        # Descomentando todo lo siguiente tenemos un plot 3d para cada traza con el ajuste del KF
+        #states = self.evt['sim/zstates'][0]
+        #x,y,z,ux,uy,uz,E = zip(*states)
+        #print 'kfs',type(kf),len(kf.nodes)
+        #l=self.PlotTrack(x,y,z,E,kf)
+        #raw_input('enter')
+        
         return ok
 
 class FitScanNodes(IAlg):
@@ -461,7 +568,7 @@ class HistosGenerateStates(IAlg):
     """
 
     def define(self):
-        self.nstates = 250 # max number of states
+        self.nstates = 160 # max number of states
         self.prefix = 'gsta_'
         return
     
@@ -495,9 +602,14 @@ class HistosGenerateStates(IAlg):
         self.root.h2d(self.prefix+'xz',100,-5.,20,100,-15.,15.)
         self.root.h2d(self.prefix+'yz',100,-5.,20,100,-15.,15.)
         self.root.h2d(self.prefix+'ez',100,-5.,20,100,0.,3.)
+        
+
+
+
 
     def histoseg(self,states):
         root = self.root
+
         for i in range(len(states)-1):
             x0,y0,z0,ux0,uy0,uz0,ee0 = states[i]
             x1,y1,z1,ux1,uy1,uz1,ee1 = states[i+1]
@@ -536,8 +648,10 @@ class HistosGenerateStates(IAlg):
     def execute(self):
 
         segs = self.evt['sim/states']
+
         if (not segs): return False
         for seg in segs:
+            
             self.histoseg(seg)
         return True
 
@@ -547,8 +661,9 @@ class HistosKFFit(IAlg):
     """
 
     def define(self):
-        self.nhits = 40 # max number of hits on track
+        self.nhits = 160 # max number of hits on track
         self.maxchi2 = 30.
+        self.rev = False
         self.path = 'rec/kfs'
         self.prefix = 'kf_'
         self.ftype = 'filter'
@@ -582,7 +697,9 @@ class HistosKFFit(IAlg):
         self.root.h1d(self.prefix+'ypull',100,-5.,5.)
         self.root.h1d(self.prefix+'txpull',100,-5.,5.)
         self.root.h1d(self.prefix+'typull',100,-5.,5.)
-        self.root.h1d(self.prefix+'nhits',100,-5.,5.)
+        self.root.h1d(self.prefix+'fchieeLE',100,0.,10.) #######################
+        self.root.h1d(self.prefix+'fchieeHE',100,0.,10.) #######################
+#        self.root.h1d(self.prefix+'nhits',100,-5.,5.)
 
         self.root.h2d(self.prefix+'xi',self.nhits,0,self.nhits,100,-10.,10.)
         self.root.h2d(self.prefix+'yi',self.nhits,0,self.nhits,100,-10.,10.)
@@ -590,17 +707,19 @@ class HistosKFFit(IAlg):
         self.root.h2d(self.prefix+'txi',self.nhits,0,self.nhits,100,-5.,5.)
         self.root.h2d(self.prefix+'tyi',self.nhits,0,self.nhits,100,-5.,5.)
         self.root.h2d(self.prefix+'eei',self.nhits,0,self.nhits,100,0.,3.)
-        self.root.h2d(self.prefix+'fchii',self.nhits,0,self.nhits,100,0.,10.)
-        self.root.h2d(self.prefix+'schii',self.nhits,0,self.nhits,100,0.,10.)
-        self.root.hprf(self.prefix+'fchii_pf',self.nhits,0,self.nhits,0.,40.)
-        self.root.hprf(self.prefix+'schii_pf',self.nhits,0,self.nhits,0.,40.)
+        self.root.h2d(self.prefix+'fchii',self.nhits,0,1.,100,0.,10.)
+        self.root.h2d(self.prefix+'fchiee',100,0,2.5,100,0.,10.) #######################
+        self.root.h2d(self.prefix+'schii',self.nhits,0,1.,100,0.,10.)
+        self.root.hprf(self.prefix+'fchii_pf',self.nhits,0,1,0.,self.nhits)
+        self.root.hprf(self.prefix+'schii_pf',self.nhits,0,1,0.,self.nhits)
         self.root.h2d(self.prefix+'xpulli',self.nhits,0,self.nhits,100,-5.,5.)
         self.root.h2d(self.prefix+'ypulli',self.nhits,0,self.nhits,100,-5.,5.)
         self.root.h2d(self.prefix+'txpulli',self.nhits,0,self.nhits,100,-5.,5.)
         self.root.h2d(self.prefix+'typulli',self.nhits,0,self.nhits,100,-5.,5.)
-
+        self.root.h2d(self.prefix+'fchiHELE',100,0.,10.,100,0.,10.)
     def execute(self):
         kfs = self.evt[self.path]
+        #print kfs
         if (not kfs): return False
         self.root.fill(self.prefix+'nfits',len(kfs))
         for kf in kfs: self.kffill(kf)
@@ -624,7 +743,12 @@ class HistosKFFit(IAlg):
         sac = achi(kf.nodes,mtype='smooth')
         self.root.fill(self.prefix+'fac',fac)
         self.root.fill(self.prefix+'sac',sac)
-
+        
+    	eaux = 2.5/2.
+        if self.rev:
+			eaux = 2.5-eaux
+        chiauxHE = 0.
+        chiauxLE = 0.
         for i in range(nhits):
             node = kf.nodes[i]
             state = node.getstate('true')
@@ -655,25 +779,40 @@ class HistosKFFit(IAlg):
                 root.fill(self.prefix+'txpull',(tx-rtx)/stx)
                 root.fill(self.prefix+'typull',(ty-rty)/sty)
 
-            root.fill(self.prefix+"xi",i,x)
-            root.fill(self.prefix+"yi",i,y)
-            root.fill(self.prefix+"zi",i,rz)
-            root.fill(self.prefix+"txi",i,tx)
-            root.fill(self.prefix+"tyi",i,ty)
-            root.fill(self.prefix+"eei",i,ee)
+            root.fill(self.prefix+"xi",float(i)/nhits,x)
+            root.fill(self.prefix+"yi",float(i)/nhits,y)
+            root.fill(self.prefix+"zi",float(i)/nhits,rz)
+            root.fill(self.prefix+"txi",float(i)/nhits,tx)
+            root.fill(self.prefix+"tyi",float(i)/nhits,ty)
+            root.fill(self.prefix+"eei",float(i)/nhits,ee)
+            
+            
+            
+            
             if (schi<=self.maxchi2):
-                root.fill(self.prefix+'xpulli',i,(x-rx)/sx)
-                root.fill(self.prefix+'ypulli',i,(y-ry)/sy)
-                root.fill(self.prefix+'txpulli',i,(tx-rtx)/stx)
-                root.fill(self.prefix+'typulli',i,(ty-rty)/sty)
-                root.fill(self.prefix+'schii',i,schi)
-                root.fill(self.prefix+'schii_pf',i,schi)
+                root.fill(self.prefix+'xpulli',float(i)/nhits,(x-rx)/sx)
+                root.fill(self.prefix+'ypulli',float(i)/nhits,(y-ry)/sy)
+                root.fill(self.prefix+'txpulli',float(i)/nhits,(tx-rtx)/stx)
+                root.fill(self.prefix+'typulli',float(i)/nhits,(ty-rty)/sty)
+                root.fill(self.prefix+'schii',float(i)/nhits,schi)
+                root.fill(self.prefix+'schii_pf',float(i)/nhits,schi)
             if (fchi<=self.maxchi2):
-                root.fill(self.prefix+'fchii',i,fchi)
-                root.fill(self.prefix+'fchii_pf',i,fchi)
-        
+                root.fill(self.prefix+'fchii',float(i)/nhits,fchi)
+                root.fill(self.prefix+'fchii_pf',float(i)/nhits,fchi)
+                root.fill(self.prefix+'fchiee',ee,fchi) ###
+            
+                if ee >= eaux:
+                    chiauxHE += fchi
+                    aux = i
+                else:
+                
+                    chiauxLE += fchi
+            
             #print ' kf-node i, z, ene, fchi ',i,rz,ree,fchi
-
+        #print chiauxHE/aux
+        #print chiauxLE/aux
+        root.fill(self.prefix+'fchieeLE',chiauxLE)
+        root.fill(self.prefix+'fchieeHE',chiauxHE)
         return True
 
 
@@ -682,30 +821,136 @@ class HistosAnaReverse(IAlg):
     """
 
     def define(self):
+        self.nhits = 160 # max number of hits on track
+        self.maxchi2 = 30.
         self.prefix = 'ana_'
         self.pathnor = 'rec/kfs'
         self.pathrev = 'rec/kfs/rev'
+        self.graph = TGraph()
         return
 
     def initialize(self):
         self.root.h2d(self.prefix+'chi',20,0.,5.,20,0.,5.)
         self.root.h2d(self.prefix+'chib',20,0.,12.,20,0.,12.)
         self.root.h2d(self.prefix+'ac',20,-1.,1.,20,-1.,1.)
+        self.root.h3d(self.prefix+'xiFB',1000,0.,30,1000,0.,30.,100,0,self.nhits)    
+        self.root.h2d(self.prefix+'meanChi',100,0.,10.,100,0.,10.)  
+        self.root.h2d(self.prefix+'AsimChii',100,0.,1,100,-1,1)   
+        self.root.h2d(self.prefix+'halfAsimChi',100,-1.,1,100,-1,1)  
+        self.root.h2d(self.prefix+'halfMeanIn',100,0.,10,100,0,10)  
+        self.root.h1d(self.prefix+'AsimIn',100,-1.,1.)  
+        self.root.h1d(self.prefix+'AsimMed',100,-1.,1.) 
+        self.root.h1d(self.prefix+'AsimFin',100,-1.,1.)  
+        self.root.h1d(self.prefix+'AsimAsim',100,-1.05,1.05) 
+        self.root.h2d(self.prefix+'AsimBoth',100,-1.,1.,100,-1.,1.) 
         return True
 
     def execute(self):
+        
         nkfs = self.evt[self.pathnor]
         rkfs = self.evt[self.pathrev]
+        
         if (not nkfs or not rkfs): return False
+        for nkf in nkfs:
+            for rkf in rkfs:
+                    nhits = min(len(rkf),len(nkf))
+                    
+                    auxn = 0.
+                    auxr = 0.
+                    norIn = 0.
+                    norFin = 0.
+                    norMed = 0.
+                    revIn = 0.
+                    revFin = 0.
+                    revMed = 0.
+                    
+                    asimI = 0.
+                    asimM = 0.
+                    asimF = 0.
+  
+                    
+                    for i in range(nhits):
+                        paso = float(i)/nhits
+                        nnode = nkf.nodes[i]
+                        nfchi = nnode.getchi2('filter')
+                        auxn += nfchi
+                        nschi = nnode.getchi2('smooth')
+                        rnode = rkf.nodes[i]
+                        rfchi = rnode.getchi2('filter')
+                        auxr += rfchi
+                        rschi = rnode.getchi2('smooth')
+                        self.root.fill(self.prefix+'xiFB',nfchi,rfchi,i)
+                        asim = (nfchi-rfchi)/(nfchi+rfchi)
+                        self.root.fill(self.prefix+'AsimChii',paso,asim)
+                        #self.graph.SetPoint(i,nfchi,rfchi)
+                        if paso <= 0.33:
+                            norIn += nfchi
+                    	    revIn += rfchi
+                    	    asimI += asim
+                    	    ni = i
+                    	elif paso >= 0.66:
+                    	    norFin += nfchi
+                    	    revFin += rfchi
+                    	    asimF +=asim
+                          
+                    	else:
+                    	    norMed += nfchi
+                    	    revMed += rfchi
+                    	    asimM += asim
+                    	    nm = i
+                    
+                    nm -= ni	    
+                    self.root.fill(self.prefix+'meanChi',auxn/nhits,auxr/nhits)
+                    norIn *= 1./ni
+                    revIn *= 1./ni
+                    asimI *= 1./ni
+                    norMed *= 1./nm
+                    revMed *= 1./nm
+                    asimM *= 1./nm
+                    norFin *= 1./(nhits-ni-nm)
+                    revFin *= 1./(nhits-ni-nm)
+                    asimF *= 1./(nhits-ni-nm)
+                    
+                    asimNorm = (norIn-norMed)/(norIn+norMed)
+                    asimRev = (revIn-revMed)/(revIn+revMed)
+                    asimBIn = (revIn-norIn)/(revIn+norIn)
+                    asimBMed = (revMed-norMed)/(revMed+norMed)
+                    asimBFin = (revFin-norFin)/(revFin+norFin)
+                    asimasim = (-asimI+asimF)/(abs(asimI)+abs(asimF))
+                    
+                    self.root.fill(self.prefix+'halfAsimChi',asimNorm,asimRev)
+                    self.root.fill(self.prefix+'halfMeanIn',norIn,revIn)
+                    
+                    self.root.fill(self.prefix+'AsimIn',asimI)
+                    self.root.fill(self.prefix+'AsimMed',asimM)
+                    self.root.fill(self.prefix+'AsimFin',asimF)
+                    self.root.fill(self.prefix+'AsimAsim',asimasim)
+                    self.root.fill(self.prefix+'AsimBoth',asimBIn,asimBFin)
+                    fi = open('Single_Irene_15_0T_10.dat','a')
+                    liste = [auxn/nhits, auxr/nhits, norIn, revIn, asimI,norMed,revMed, asimM,norFin,revFin, asimF, asimasim, asimNorm, asimRev, asimBIn, asimBFin,asimBMed]
+                    fi.write(' '.join(map(str,liste))+'\n')
+                    fi.close()
         pars = zip(nkfs,rkfs)
+        i = 0
         for par in pars:
+            
             rk,fk = par
             fchi,fchib,fac = foms(fk.nodes)
             rchi,rchib,rac = foms(rk.nodes)
             self.root.fill(self.prefix+'chi',fchi,rchi)
             self.root.fill(self.prefix+'chib',fchib,rchib)
             self.root.fill(self.prefix+'ac',fac,rac)
+            
+            
+            i += 1  
         return True
+        
+    def finalize(self):
+        #c = TCanvas()
+        x=1
+        #self.graph.Draw('AP')
+        #c.SaveAs('graph.root')
+            
 
 class HistosScanNodes(IAlg):
     """ Algorithm to histogram the scan of the track
@@ -1222,14 +1467,14 @@ def dotracks():
     # create aplication
     alex = Alex()
     alex.msg.level = Message.Info
-    alex.nevts = 1000
+    alex.nevts = 1
     root = ROOTSvc('root','akfbeta.root')
     alex.addsvc(root)
 
     # simulate states
     #--------------------------
-    #agenstates = GenerateDoubleBeta('agenstates') # uncoment to generate doble-beta
-    agenstates = GenerateBeta('agenstates')
+    agenstates = GenerateDoubleBeta('agenstates') # uncoment to generate doble-beta
+    #agenstates = GenerateBeta('agenstates')
     agenstates.E0 = 2.5
     alex.addalg(agenstates)
 
@@ -1244,12 +1489,12 @@ def dotracks():
     alex.addalg(agendigits)  
 
     # create nodes
-    agennodes = CreateNodes('agennodes')
-    alex.addalg(agennodes)
+    #agennodes = CreateNodes('agennodes')
+    #alex.addalg(agennodes)
 
     # uncoment to generetate doble-beta nodes in one track
-    #betanodes = DoubleBetaNodes('betanodes')
-    #alex.addalg(betanodes)
+    betanodes = DoubleBetaNodes('betanodes')
+    alex.addalg(betanodes)
 
     # fit
     #-----------------
@@ -1316,5 +1561,5 @@ if __name__ == '__main__':
     uncomment the configuration to run.
     """
     
-    doscan()
-    #dotracks()
+    #doscan()
+    dotracks()

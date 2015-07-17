@@ -94,14 +94,18 @@ class KFZLine(KFModel):
             #state.vec[2]*=-1.; state.vec[3]*=-1.;
         #ok = ok and (state.uz*dz>0.)
         ene = state.vec[-1]
+        '''
         if (self.noiser):
             pp = kinmomentum(ene)
             ok = ok and self.noiser.validstep(pp,abs(dz))
+        
         if (self.eloss):
             ok = ok and  self.eloss.validstep(ene,abs(dz))
+            
         if (not ok):
             warning('kfzline.validstep not valid step',(state.vec,zrun))
         debug('kfzline.validstep ok ',ok)
+        '''
         return ok
         
     def QMatrix(self,x,zdis):

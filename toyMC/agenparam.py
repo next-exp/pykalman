@@ -22,7 +22,7 @@ pc_m_Xe = 131.293;        # mass of xenon in amu
 pc_NA = 6.02214179e23;    # Avogadro constant
 
 # Read in the stopping power and interpolate.
-xesp_tbl = np.loadtxt("xe_estopping_power_NIST.dat");
+xesp_tbl = np.loadtxt("/home/brais/Documents/Next/pykalman/toyMC/xe_estopping_power_NIST.dat");
 rho = pc_rho0*(Pgas/(Tgas/273.15))*(pc_m_Xe/pc_NA);
 e_vals = xesp_tbl[:,0];
 dEdx_vals = xesp_tbl[:,1];
